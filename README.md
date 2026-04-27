@@ -1,13 +1,15 @@
+![Horizon Uncertainty RL banner](assets/banner.svg)
+
 # Random-Horizon Trading: Testing Temporal Reasoning in LLM Agents
 
 ## 1. Motivation
 
 LLM trading agents are typically evaluated with a fixed, known time horizon (explicitly stated, or implied by daily-rebalancing conventions). Humans do not invest this way: we hold a *distribution of beliefs* over how long a position will last, and we update those beliefs as time passes.
 
-This project builds an environment where an LLM agent must trade under **horizon uncertainty**: it enters a market, trades freely, but is force-liquidated at a **random, unknown time T**. The optimal strategy requires reasoning about elapsed time — "given that I have survived this long, how much time do I likely have left, and what should I hold for that remaining time?"
+This project builds an environment where an LLM agent must trade under **horizon uncertainty**: it enters a market, trades freely, but is force-liquidated at a **random, unknown time T**. The optimal strategy requires reasoning about elapsed time - "given that I have survived this long, how much time do I likely have left, and what should I hold for that remaining time?"
 
 **Research question (framed as a question, not a foregone conclusion):**
-Can LLM agents perform time-inhomogeneous sequential decision-making under horizon uncertainty — and if not, what is the specific signature of their failure (temporal rigidity, missed belief updates, mistimed trades)?
+Can LLM agents perform time-inhomogeneous sequential decision-making under horizon uncertainty - and if not, what is the specific signature of their failure (temporal rigidity, missed belief updates, mistimed trades)?
 
 Either outcome is informative: success shows LLMs can do Bayesian temporal reasoning when framed correctly; failure characterizes a concrete, measurable limitation.
 
@@ -39,7 +41,7 @@ If the exit time is geometric (constant hazard `h(t) = p`), the objective reduce
 E[ Σ_{t=1..T} r_t ] = Σ_t r_t (1−p)^{t−1} = Σ_t γ^{t−1} r_t
 ```
 
-The optimal policy is stationary — it never depends on elapsed time — so the experiment would test nothing temporal.
+The optimal policy is stationary - it never depends on elapsed time - so the experiment would test nothing temporal.
 
 **Mitigation: use only non-memoryless exit distributions.** Two conditions:
 
@@ -57,15 +59,15 @@ The optimal policy is stationary — it never depends on elapsed time — so the
 
 Geometric exit is retained only as a *control condition* to verify that agents behave stationarily when they should (a sanity check, not a headline experiment).
 
-### 3.2 Problem: attribution — if the LLM fails, was it temporal reasoning or something else?
+### 3.2 Problem: attribution - if the LLM fails, was it temporal reasoning or something else?
 
-A rich environment (hidden dynamics, fractional sizing, many assets) makes failure uninterpretable: poor performance could come from bad market prediction, arithmetic slips in position sizing, or context-length issues — not the temporal reasoning we want to isolate.
+A rich environment (hidden dynamics, fractional sizing, many assets) makes failure uninterpretable: poor performance could come from bad market prediction, arithmetic slips in position sizing, or context-length issues - not the temporal reasoning we want to isolate.
 
 **Mitigations:**
 
-- **Fully disclosed market dynamics.** The exact return process of every asset is stated in the agent's prompt. There is nothing to predict about the market. The *only* hidden variable is `T` (and even its distribution is disclosed in the main condition — see 3.5). Any suboptimality is therefore attributable to temporal reasoning.
+- **Fully disclosed market dynamics.** The exact return process of every asset is stated in the agent's prompt. There is nothing to predict about the market. The *only* hidden variable is `T` (and even its distribution is disclosed in the main condition - see 3.5). Any suboptimality is therefore attributable to temporal reasoning.
 - **Trivially simple market.** Deterministic or low-noise synthetic returns (see Section 4). No regime switching, no hidden state.
-- **Discrete action space.** Each day the agent holds exactly one of `{Asset A, Asset B, Asset C, Cash}` — 100% allocation, no fractional sizing. This removes arithmetic as a confound and makes the policy space small enough for exact solution.
+- **Discrete action space.** Each day the agent holds exactly one of `{Asset A, Asset B, Asset C, Cash}` - 100% allocation, no fractional sizing. This removes arithmetic as a confound and makes the policy space small enough for exact solution.
 - **Exact optimal baseline.** Because state and action spaces are small and dynamics are known, the true optimal policy is computed by backward induction (Section 6). The headline metric is **regret**, not raw PnL. "Lost money" is uninterpretable; "3× the regret of the optimum, concentrated in late-episode over-holding of the long-horizon asset" is a finding.
 
 ### 3.3 Problem: horizon uncertainty is irrelevant if one asset dominates at all horizons
@@ -78,7 +80,7 @@ If a single asset is best regardless of holding length, the exit distribution do
 
 With zero transaction costs, an agent can churn daily; hyperactive trading hides whether trades are *timed to informational events* or are just noise.
 
-**Mitigation: small transaction cost.** Switching holdings costs `c = 0.1%` of wealth per switch (holding the same position is free). This creates a real tension — adapting to the shifting horizon costs money — so the *timing* of trades becomes meaningful. Under the bimodal condition, the optimal policy trades at day 11 (mode resolution); whether the LLM concentrates its trades there is a crisp readout.
+**Mitigation: small transaction cost.** Switching holdings costs `c = 0.1%` of wealth per switch (holding the same position is free). This creates a real tension - adapting to the shifting horizon costs money - so the *timing* of trades becomes meaningful. Under the bimodal condition, the optimal policy trades at day 11 (mode resolution); whether the LLM concentrates its trades there is a crisp readout.
 
 ### 3.5 Problem: conflating risk with ambiguity
 
@@ -86,13 +88,13 @@ With zero transaction costs, an agent can churn daily; hyperactive trading hides
 
 **Mitigation: separate conditions.**
 
-- **Condition K (known distribution)** — main condition. The exit distribution is fully stated in the prompt. Tests pure temporal *reasoning*: can the agent do the survival update and act on it?
-- **Condition U (unknown distribution)** — the prompt says only "you will be liquidated at some random time." Tests behavior under ambiguity.
-- **Condition L (learnable distribution)** — extension. The agent plays repeated episodes with persistent memory of past exit times and can *infer* the hazard. Connects to self-evolving-agent research; deferred to Phase 2.
+- **Condition K (known distribution)** - main condition. The exit distribution is fully stated in the prompt. Tests pure temporal *reasoning*: can the agent do the survival update and act on it?
+- **Condition U (unknown distribution)** - the prompt says only "you will be liquidated at some random time." Tests behavior under ambiguity.
+- **Condition L (learnable distribution)** - extension. The agent plays repeated episodes with persistent memory of past exit times and can *infer* the hazard. Connects to self-evolving-agent research; deferred to Phase 2.
 
 ### 3.6 Problem: the mandatory-entry rule entangles two clocks
 
-If the exit clock starts at the agent's chosen entry time, entry timing changes the exit distribution the agent faces — an interesting but confounding second decision.
+If the exit clock starts at the agent's chosen entry time, entry timing changes the exit distribution the agent faces - an interesting but confounding second decision.
 
 **Mitigation: for Phase 1, the exit clock starts at episode start (day 1), and the agent is auto-entered on day 1 holding cash.** "When to first leave cash" remains a decision, but there is a single unambiguous clock. Entry-timing as a strategic variable (clock-starts-at-entry) is deferred to Phase 2.
 
@@ -108,13 +110,13 @@ Three risky assets plus cash, with cumulative return profiles chosen so the rank
 
 | Asset | Profile | Daily return schedule (frozen by calibration, 2026-08-27) |
 |---|---|---|
-| A — "Sprinter" | Momentum then decay | +1.2%/day for the first 15 days held, then -0.4%/day |
-| B — "Compounder" | Slow steady growth | +0.2%/day, flat forever |
-| C — "Late bloomer" | Weak early, strong late | +0.05%/day for the first 25 days held, then +1.0%/day |
+| A - "Sprinter" | Momentum then decay | +1.2%/day for the first 15 days held, then -0.4%/day |
+| B - "Compounder" | Slow steady growth | +0.2%/day, flat forever |
+| C - "Late bloomer" | Weak early, strong late | +0.05%/day for the first 25 days held, then +1.0%/day |
 | Cash | Safe | 0%/day |
 
 Selected by automated search over 9,216 candidates against the calibration targets in
-`DESIGN.md` §P3 — never hand-tuned. The full feasible set is committed in
+`DESIGN.md` §P3 - never hand-tuned. The full feasible set is committed in
 `data/calibration.json` for the appendix. Resulting environment:
 
 | Exit | `V*` | Optimal path | Time-varying states |
@@ -127,14 +129,14 @@ Selected by automated search over 9,216 candidates against the calibration targe
 excellent and tested nothing.** Both are recorded here because each represents a way this
 experiment could have silently failed:
 
-1. **Myopic separation.** An early winner beat every fixed-asset baseline by 12% — and
+1. **Myopic separation.** An early winner beat every fixed-asset baseline by 12% - and
    was matched *exactly* by a purely greedy agent that never looks past tomorrow. Its late
    bloomer needed 50 days to pay off while only 42.5 remained in expectation at the
    crossover, so entering it was never correct and the optimum degenerated to greed.
    Beating fixed baselines is therefore not sufficient evidence that horizon reasoning is
    required; the optimum must also beat myopic-greedy, and here it does by **15.0%**.
 2. **A control that actually controls.** Another winner put the memoryless geometric
-   condition at 20.8% time-varying states — *above* the uniform condition it exists to
+   condition at 20.8% time-varying states - *above* the uniform condition it exists to
    contrast with. The control must stay below the non-collapse gate or it proves nothing.
 
 ### The no-re-entry rule (added 2026-08-27)
@@ -151,8 +153,8 @@ Measured against the exact optimum, the original parameters produced exactly tha
 d1-10:A   d11:B   d12-21:A   d22:B   d23-32:A   ...      18 switches, C never held
 ```
 
-Worse, the resulting policy was **identical at every `t`** — 0% of reachable states changed
-action on any day — which is precisely the degeneracy §3.1 exists to prevent. The
+Worse, the resulting policy was **identical at every `t`** - 0% of reachable states changed
+action on any day - which is precisely the degeneracy §3.1 exists to prevent. The
 environment would have tested nothing temporal.
 
 Raising the switch cost does not fix it: the cost required to deter the cycle (>2.6%, some
@@ -165,8 +167,8 @@ conditions diverge in an interpretable way:
 
 | Exit | Optimal path | `V*` |
 |---|---|---|
-| uniform | hold A days 1–10, then **B** for the rest | 1.1964 |
-| bimodal | hold A days 1–10, then **C** for the rest | 1.2648 |
+| uniform | hold A days 1-10, then **B** for the rest | 1.1964 |
+| bimodal | hold A days 1-10, then **C** for the rest | 1.2648 |
 
 Both ride the Sprinter through its boost window; they differ in what they hold afterwards.
 Under uniform exit remaining time is shrinking, so the steady compounder wins; under
@@ -186,7 +188,7 @@ Notes:
 The daily prompt contains:
 
 - Current day `t` and the fact that the episode is alive.
-- Full market rules (asset return schedules, transaction cost) — repeated every episode, stated once per episode.
+- Full market rules (asset return schedules, transaction cost) - repeated every episode, stated once per episode.
 - Exit-time information per condition (K: full distribution; U: existence only).
 - Current holding, current wealth, days the current position has been held.
 - Trade history for this episode (compact table).
@@ -199,7 +201,7 @@ One token-parseable choice per day: `HOLD` or `SWITCH <A|B|C|CASH>`.
 
 ### 5.3 Elicited beliefs (probe, logged but not scored)
 
-Before each action, the agent is asked: "In one line, state your current estimate of expected remaining days." This gives a direct calibration readout — comparing stated beliefs to the true conditional expectation `E[T − t | T > t]` separates *belief formation* failures from *belief-to-action* failures.
+Before each action, the agent is asked: "In one line, state your current estimate of expected remaining days." This gives a direct calibration readout - comparing stated beliefs to the true conditional expectation `E[T − t | T > t]` separates *belief formation* failures from *belief-to-action* failures.
 
 ## 6. Ground Truth: Optimal Policy via Backward Induction
 
@@ -215,7 +217,7 @@ V(t, holding, age) =
         − switch_cost_if_applicable(a)
 ```
 
-Solved backward from `t = N` (where `h(N) = 1`). State space is ~100 days × 4 holdings × 100 ages ≈ 40k states — trivial to solve exactly.
+Solved backward from `t = N` (where `h(N) = 1`). State space is ~100 days × 4 holdings × 100 ages ≈ 40k states - trivial to solve exactly.
 
 Outputs:
 
@@ -240,7 +242,7 @@ Outputs:
 3. **Crossover alignment** (uniform condition): distribution of the agent's B→A (or C→A) switch day vs. the optimal `t*`.
 4. **Event-timing score** (bimodal condition): fraction of trades concentrated at the day-11 information event; probability the agent changes strategy in the window [11, 15] vs. base rate.
 5. **Belief calibration**: error between stated expected-remaining-days and the true `E[T − t | T > t]`, tracked over `t`.
-6. **De-risking signature**: cash/stable-asset share as a function of hazard `h(t)` — does the agent de-risk as hazard rises?
+6. **De-risking signature**: cash/stable-asset share as a function of hazard `h(t)` - does the agent de-risk as hazard rises?
 7. **Behavioral decomposition**: regret split into (a) wrong beliefs (calibration error), (b) right beliefs / wrong actions, (c) transaction-cost waste.
 
 ## 9. Experimental Grid (Phase 1)
@@ -255,7 +257,7 @@ Estimated cost: pure API inference; no GPU required. ~100 days × ~200 episodes 
 
 ## 10. Phase 2 Extensions (explicitly out of scope for Phase 1)
 
-- **Condition L**: repeated episodes with persistent memory (e.g., a memory framework such as Letta) — can the agent *learn* the hazard from experience? Bridge to self-evolving-agent research.
+- **Condition L**: repeated episodes with persistent memory (e.g., a memory framework such as Letta) - can the agent *learn* the hazard from experience? Bridge to self-evolving-agent research.
 - **Entry-timing clocks**: exit clock starts at agent-chosen entry.
 - **Risk-averse objective**: `E[log W_T]`; fractional position sizing.
 - **Recursive/RLM-style agents**: does recursive decomposition of the temporal problem help?
@@ -264,14 +266,14 @@ Estimated cost: pure API inference; no GPU required. ~100 days × ~200 episodes 
 ## 11. Threats to Validity (acknowledged upfront)
 
 - **Per-holding return clocks are stylized.** Real assets don't reward holding duration per se. This is intentional: the design isolates temporal reasoning. A follow-up with historical data trades control for realism.
-- **Disclosure is unrealistic.** Real traders don't know return processes. Again intentional — Condition U and Phase 2 walk toward realism.
+- **Disclosure is unrealistic.** Real traders don't know return processes. Again intentional - Condition U and Phase 2 walk toward realism.
 - **Prompt sensitivity.** Results may hinge on phrasing; mitigated by prompt variants and reporting across them, not cherry-picking.
 - **Single-episode context length.** 100 days of history may strain context; mitigated by compact state summaries, and history-truncation ablations.
 
 ## 12. Deliverables
 
-1. `env/` — environment implementation (exit distributions, market, cost model).
-2. `solver/` — backward-induction optimal policy + calibration script for asset parameters.
-3. `agents/` — LLM runner (any API model), scripted baselines.
-4. `eval/` — episode runner, metrics, plots (regret, clock coefficient, switch-day histograms, calibration curves).
+1. `env/` - environment implementation (exit distributions, market, cost model).
+2. `solver/` - backward-induction optimal policy + calibration script for asset parameters.
+3. `agents/` - LLM runner (any API model), scripted baselines.
+4. `eval/` - episode runner, metrics, plots (regret, clock coefficient, switch-day histograms, calibration curves).
 5. Report/paper draft structured around the metrics in Section 8.
