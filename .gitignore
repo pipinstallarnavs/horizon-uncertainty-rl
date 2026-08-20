@@ -1,0 +1,57 @@
+# ---- Credentials: never commit -------------------------------------------
+# GCP service-account keys (the live key for this project matches the first
+# pattern). Secrets live in GCP Secret Manager; see docs spec section 11.
+gen-lang-client-*.json
+*-service-account*.json
+service-account*.json
+credentials*.json
+client_secret*.json
+*.pem
+*.key
+.env
+.env.*
+!.env.example
+secrets/
+/run/secrets/
+
+# Local operator notes: contains billing account ID and personal account
+# addresses. Kept out of the repo so it can be made public without a rewrite.
+GCP_MODELS_USAGE.md
+
+# ---- Python ---------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# ---- Experiment artifacts -------------------------------------------------
+# Raw run outputs are large and regenerable from Postgres; the export bundle
+# is the committed artifact, not these.
+data/raw/
+data/exports/
+*.sqlite
+*.db
+logs/
+*.log
+
+# ---- Infrastructure -------------------------------------------------------
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+
+# ---- OS / editor ----------------------------------------------------------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
