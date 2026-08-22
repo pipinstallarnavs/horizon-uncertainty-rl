@@ -173,10 +173,19 @@ second failure produces `format_error`, action defaults to HOLD, episode flagged
 | `empty_thinking_truncation` | §2.1 — config bug | **no** — aborts cell instead |
 | `api_error` | 5xx / timeout after retries | no — unit requeued |
 
-**Spend cap.** Metered from actual `usageMetadata` on every response, written to
-`spend_ledger`, checked before each new lease. On cap: orchestrator stops leasing,
-lets in-flight units finish, marks the run `paused_spend_cap`. Fully resumable.
-Live `gemini-3.7-flash` pricing is fetched at implementation time, not guessed.
+**Spend metering.** Token usage is metered from actual `usageMetadata` on every
+response and written to `spend_ledger`. Thought tokens are metered as their own
+column: probes showed 60–171 thought tokens even on trivial prompts, so over ~115k
+decisions they dominate output cost, and `EXPERIMENTS.md` §7's budget model does
+not account for them.
+
+**Spend is not a constraint on this study** (explicit researcher decision,
+2026-08-27). The cap is therefore **disabled by default** — `spend_cap_usd` is
+NULL, and the orchestrator never stops leasing for cost reasons. The cap mechanism
+is still implemented and tested, so a ceiling can be imposed later by setting one
+value; and spend remains fully visible on the dashboard as instrumentation. Live
+`gemini-3.7-flash` pricing is fetched at implementation time to make the displayed
+figure accurate, not to gate execution.
 
 **Prompt caching.** The rules block is byte-identical within a cell; it is placed
 first in the request so Vertex implicit caching can hit. `cache_hit` is logged.
@@ -224,6 +233,13 @@ as they are LLM arms.
 At the measured ceiling this is roughly 4 hours of wall clock. Budget freed by
 dropping two model slots is spent on running Tiers 2 and 3 in full rather than
 sampling them.
+
+**Episode counts are governed by statistical power alone.** `EXPERIMENTS.md` §3.2
+sets Tier 1 at 200 episodes "budget permitting", with a documented fallback of
+reporting the minimum detectable effect if power demands more than the budget
+allows. Since spend is not a constraint (§6), that fallback is void: whatever
+episode count the pilot's power check returns is the count that runs, and the
+table above scales with it. The 200 figure is a floor, not a ceiling.
 
 **Note on S2 (reasoning mode).** `EXPERIMENTS.md` §2 treats extended thinking as a
 Tier-3 factor, not a default. Since thinking cannot be disabled on this model
@@ -343,7 +359,9 @@ Steps 1–8 involve **zero API spend**. Step 9 provisions. Real spend begins at 
 5. Solver verification passes all three checks (MC, brute force, non-collapse).
 6. Dashboard reachable over HTTPS from a browser with no VPN or client software.
 7. Export bundle regenerates every reported number without touching the database.
-8. Spend cap provably halts leasing; run resumes cleanly when raised.
+8. Token metering (including thought tokens) is accurate against `usageMetadata`;
+   the cap mechanism provably halts leasing *when explicitly enabled*, and is off
+   by default.
 9. `empty_thinking_truncation` rate < 0.5% across all cells.
 10. No credential ever present in git history.
 
@@ -356,5 +374,6 @@ Steps 1–8 involve **zero API spend**. Step 9 provisions. Real spend begins at 
 | Measured 9 req/s differs from the VM's real ceiling | AIMD discovers it; no hardcoded constant |
 | `gemini-3.7-flash` deprecated or silently updated mid-run | Snapshot ID logged per row; weekly canary per `EXPERIMENTS.md` §2; segment by date on drift |
 | Calibration finds no feasible parameter set | `EXPERIMENTS.md` §11 playbook: widen N to 150 or relax target 2 to >= 3%, documented before any LLM run |
-| Thinking tokens make spend exceed estimate | Metered cap, not estimated; aborts cleanly |
+| Thinking tokens dominate output cost | Metered and displayed, not gating; spend is not a constraint (§6) |
+| Wall clock, not cost, becomes the limiting resource | Worker count and AIMD ceiling are runtime knobs; episodes are embarrassingly parallel (§5) |
 | Single-model results overclaimed | §9 gate + explicit written limitation |
