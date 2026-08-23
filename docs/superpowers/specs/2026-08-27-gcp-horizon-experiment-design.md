@@ -283,6 +283,27 @@ FastAPI + HTMX, server-rendered, polling Postgres. Reachable at
 **Operational panel** — progress by cell; live req/s; 429 rate and current AIMD
 concurrency; spend vs. cap; the five error classes from §6; ETA to completion.
 
+**Token telemetry panel** — the live readout of the model actually working:
+
+| Widget | Content |
+|---|---|
+| Cumulative counters | total prompt / completion / **thought** / grand-total tokens, updating live |
+| Token throughput | tokens/sec time series, split by prompt vs. completion vs. thought |
+| Thought share | thought tokens as a fraction of output tokens, over wall-clock time |
+| Per-cell totals | token spend broken out by experiment cell |
+| Decision cost histogram | distribution of total tokens per decision |
+
+**Thought tokens are also a scientific signal, not just telemetry.** `thoughts_tokens`
+is a per-decision proxy for deliberation effort. Plotting mean thought tokens against
+day `t` and against the hazard `h(t)` asks whether the model *works harder* when the
+horizon problem gets harder — in particular whether deliberation spikes at the
+bimodal day-11 information event. This is a genuine behavioural measure available at
+zero marginal cost, and it discriminates cases the action data cannot: an agent that
+neither thinks harder nor acts differently at day 11 is temporally blind, whereas one
+that thinks harder but still acts wrongly is an execution failure in the sense of
+`DESIGN.md` P7. It is reported as exploratory (not pre-registered), since it was
+added after the protocol was written.
+
 **Scientific panel** — every figure from `DESIGN.md` Part IV, live as data arrives:
 
 | Panel | Source |
