@@ -73,9 +73,36 @@ Search procedure: coarse grid over the 6 parameters (~10^4 combos), evaluate tar
 
 **Solution.**
 - Cost `c = 0.1%` of wealth per switch, applied at execution; HOLD is free. Chosen via calibration target 4 above; report a sensitivity sweep `c ∈ {0, 0.05%, 0.1%, 0.3%}` in the appendix.
-- **Trade-information alignment metric** (formalizing "timed to events"): define the information intensity `I(t) = |m(t) − m(t−1)|` (change in conditional mean remaining time; spikes at day 11 in bimodal). Compute the normalized alignment
-  `align = Σ_t 1[trade at t] · I(t) / (n_trades · mean(I))`.
-  `align ≈ 1` for information-blind trading; `align >> 1` for event-timed trading. Report with bootstrap CIs over episodes.
+- **Trade-timing alignment metric** (formalizing "timed to events").
+
+  **Corrected 2026-08-27.** This metric was originally specified as
+  `I(t) = |m(t) − m(t−1)|` — the change in conditional mean remaining time —
+  described as "spikes at day 11 in bimodal". Measured against the implemented
+  distribution, it does not: `I(t)` peaks at **day 10** (6.77) and at day 11 is
+  1.00, which is **0.83× its own mean**. The metric would therefore have scored a
+  perfectly-timed day-11 trade as *below-average* information alignment — the
+  exact opposite of its intent. A KL-divergence variant between successive
+  posterior remaining-time distributions was also checked; it peaks at day 99.
+
+  The cause is conceptual, not numerical: **nothing is learned at day 11.** The
+  mode resolves at day 10. What changes at day 11 is the *decision problem* —
+  80 days of zero exit risk begin — so the event is invisible to any
+  belief-change measure.
+
+  **Replacement: decision-relevance intensity**, derived from the solver (P6),
+  which already computes per-state value losses:
+
+  `D(t) = V*(t, x_t) − Q*(t, x_t, a_{t−1})`
+
+  the wealth lost by carrying yesterday's action into day `t`. This is exactly
+  zero while the optimal action is unchanged and spikes precisely where the
+  optimal policy turns over — which is the property the metric was always meant
+  to have. Normalized alignment is then
+
+  `align = Σ_t 1[trade at t] · D(t) / (n_trades · mean(D))`
+
+  with `align ≈ 1` for timing-blind trading and `align >> 1` for event-timed
+  trading. Report with bootstrap CIs over episodes.
 - **Churn guard:** episodes report switches/episode; agents exceeding 2× the optimal switch count are analyzed separately (over-trading is itself a finding, likely reflecting per-step recency bias).
 
 ---

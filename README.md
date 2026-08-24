@@ -49,9 +49,9 @@ The optimal policy is stationary — it never depends on elapsed time — so the
    - Tests *gradual* belief updating.
 
 2. **Bimodal exit**: `T ~ Uniform{1,...,10}` w.p. 0.5, else `Uniform{91,...,100}`.
-   - Surviving day 10 fully resolves the mode: expected remaining time jumps from small to ~85 days.
-   - Hazard is high on days 1–10, exactly zero on days 11–90, spikes on days 91–100.
-   - Creates a **bright-line event at day 11**: a rational agent should visibly change strategy. A single interpretable behavioral checkpoint.
+   - Surviving day 10 fully resolves the mode. Note that expected remaining time does *not* jump: it rises smoothly from 50.5 to 85.5 days across the early window, because each survived day shifts posterior weight toward the late mode one day at a time. (Corrected 2026-08-27 against the implemented distribution; the earlier claim of a jump "from small to ~85 days" was wrong.)
+   - Hazard is high on days 1–10, exactly zero on days 11–90, spikes on days 91–100. **The hazard is where the discontinuity lives**: `h(10) = 0.091`, `h(11) = 0`.
+   - Creates a **bright-line event at day 11**: a rational agent should visibly change strategy. A single interpretable behavioral checkpoint. The event is a change in the *decision problem* (80 days of zero exit risk suddenly begin), not a change in *belief* — nothing new is learned at day 11, since the mode already resolved at day 10.
 
 Geometric exit is retained only as a *control condition* to verify that agents behave stationarily when they should (a sanity check, not a headline experiment).
 
