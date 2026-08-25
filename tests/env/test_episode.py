@@ -18,21 +18,24 @@ def test_holding_cash_forever_preserves_wealth():
     assert w[-1] == pytest.approx(1.0)
 
 
-def test_sprinter_compounds_then_decays():
+def test_late_bloomer_pays_nothing_until_its_breakpoint():
     m = default_market()
-    a = m.index("A")
-    w = wealth_path(m, [a] * 12)
-    # Day 1 pays the boost rate but also the switch cost out of CASH.
-    assert w[1] == pytest.approx(0.999 * 1.008)
-    # Days 11 and 12 are past the breakpoint and shrink wealth.
-    assert w[12] < w[10]
+    c = m.index("C")
+    w = wealth_path(m, [c] * 25)
+    # Day 1 pays C's zero early rate but still charges the switch cost out of CASH.
+    assert w[1] == pytest.approx(0.999)
+    # Nothing accrues through the 20-day dead period.
+    assert w[20] == pytest.approx(0.999)
+    # Past the breakpoint it compounds at the late rate.
+    assert w[25] == pytest.approx(0.999 * 1.008 ** 5)
 
 
 def test_switching_charges_the_cost_once_per_switch():
     m = default_market()
     a, b = m.index("A"), m.index("B")
     w = wealth_path(m, [a, a, b])
-    expected = 0.999 * 1.008 * 1.008 * 0.999 * 1.0025
+    # Switch into A (cost), hold A (free), switch to B (cost).
+    expected = 0.999 * 1.003 * 1.003 * 0.999 * 1.006
     assert w[3] == pytest.approx(expected)
 
 

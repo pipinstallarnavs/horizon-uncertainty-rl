@@ -19,15 +19,21 @@ def uniform_exit(N: int = 100) -> ExitDistribution:
 
 def bimodal_exit(
     N: int = 100,
-    early: tuple = (1, 10),
+    early: tuple = (10, 10),
     late: tuple = (91, 100),
     w: float = 0.5,
 ) -> ExitDistribution:
-    """Mass split between an early and a late window, with a dead zone between.
+    """Mass split between an early and a late mode, with a dead zone between.
 
-    Surviving the early window fully resolves the mode, so expected remaining
-    time jumps discontinuously. That bright line is the single most interpretable
-    behavioural checkpoint in the study.
+    The early mode is CONCENTRATED on a single day by default, and that choice is
+    load-bearing. Spreading it over days 1-10 (the original specification)
+    resolves the posterior gradually: by day 10 the agent already knows it is in
+    the late mode, so crossing into day 11 changes almost nothing and the optimal
+    action moves on 0% of reachable states. Concentrating the mass makes day 10 a
+    genuine coin flip, and the optimal action then changes on ~75% of states.
+
+    Only the concentrated form gives the day-11 checkpoint the ground truth that
+    hypothesis H3 and the event-timing metric are scored against.
     """
     pmf = np.zeros(N + 1)
     e0, e1 = early

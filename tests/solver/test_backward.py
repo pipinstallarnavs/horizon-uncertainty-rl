@@ -112,14 +112,30 @@ def test_a_spread_early_mode_produces_no_bright_line():
     assert _action_change_fraction(solve(m, spread), 11) == 0.0
 
 
-def test_readme_default_parameters_are_degenerate():
-    # The provisional parameters in README section 4 admit an age-clock exploit:
-    # A's boost is worth 8% while a switch costs 0.1%, so the optimum cycles
-    # A -> B -> A to reset A's clock forever. The resulting policy is identical
-    # at every t, which is exactly the collapse DESIGN.md P1 forbids.
-    m = default_market()
-    sol = solve(m, bimodal_exit())
+def test_the_boost_then_decay_shape_collapses_the_policy():
+    # Regression guard for the rejected market design. The original README section 4
+    # "Sprinter" paid 0.8%/day for its first 10 days held while a switch cost only
+    # 0.1%, so the optimum farmed the clock reset (A -> B -> A forever) and the
+    # policy became identical at every t. Any asset paying more when freshly held
+    # reproduces this, which is why the default market is now monotone.
+    sprinter = Market(
+        assets=(
+            AssetSpec("A", 0.008, -0.002, 10),
+            AssetSpec("B", 0.0025, 0.0025, 1),
+            AssetSpec("C", 0.0005, 0.006, 40),
+            AssetSpec("CASH", 0.0, 0.0, 1),
+        ),
+        switch_cost=0.001,
+    )
+    sol = solve(sprinter, bimodal_exit(early=(1, 10)))
     assert all(_action_change_fraction(sol, t) == 0.0 for t in range(2, 101))
+
+
+def test_the_default_market_is_not_degenerate():
+    # The positive case: monotone assets plus a concentrated early mode give a
+    # policy that genuinely depends on elapsed time.
+    sol = solve(default_market(), bimodal_exit())
+    assert any(_action_change_fraction(sol, t) > 0.0 for t in range(2, 101))
 
 
 def test_solution_shapes_are_consistent():

@@ -48,10 +48,12 @@ The optimal policy is stationary — it never depends on elapsed time — so the
    - Hazard rises smoothly: `h(t) = 1/(N−t+1)`, from 1% to 100%.
    - Tests *gradual* belief updating.
 
-2. **Bimodal exit**: `T ~ Uniform{1,...,10}` w.p. 0.5, else `Uniform{91,...,100}`.
-   - Surviving day 10 fully resolves the mode. Note that expected remaining time does *not* jump: it rises smoothly from 50.5 to 85.5 days across the early window, because each survived day shifts posterior weight toward the late mode one day at a time. (Corrected 2026-08-27 against the implemented distribution; the earlier claim of a jump "from small to ~85 days" was wrong.)
-   - Hazard is high on days 1–10, exactly zero on days 11–90, spikes on days 91–100. **The hazard is where the discontinuity lives**: `h(10) = 0.091`, `h(11) = 0`.
-   - Creates a **bright-line event at day 11**: a rational agent should visibly change strategy. A single interpretable behavioral checkpoint. The event is a change in the *decision problem* (80 days of zero exit risk suddenly begin), not a change in *belief* — nothing new is learned at day 11, since the mode already resolved at day 10.
+2. **Bimodal exit**: `T = 10` w.p. 0.5, else `Uniform{91,...,100}`.
+   - Surviving day 10 fully resolves the mode in a single step: expected remaining time jumps `43.75 → 85.5` days.
+   - Hazard is zero everywhere except day 10 (`h(10) = 0.5`, a coin flip) and the late window.
+   - Creates a **bright-line event at day 11**: a rational agent should visibly change strategy. A single interpretable behavioral checkpoint, and with these parameters the optimal action changes on **75% of reachable states** at that boundary.
+
+   **The early mode must be concentrated (revised 2026-08-27).** This condition was originally specified with the early mass spread over `Uniform{1,...,10}`. Measured against the exact optimum, that version has **no bright line at all**: spreading the mass resolves the posterior gradually, so by day 10 the agent already knows it is in the late mode, expected remaining time creeps from 50.5 to 85.5 rather than jumping, and the optimal action changes on **0%** of reachable states at day 11. Hypothesis H3 and the event-timing metric would have had no ground truth to score against. Concentrating the mass restores the intended discontinuity.
 
 Geometric exit is retained only as a *control condition* to verify that agents behave stationarily when they should (a sanity check, not a headline experiment).
 
@@ -104,12 +106,28 @@ The hypothesis "LLMs are rigid about time" is an intuition, not an established f
 
 Three risky assets plus cash, with cumulative return profiles chosen so the ranking depends on holding length. Returns are deterministic functions of holding duration in the base version (noise added as a robustness variant).
 
-| Asset | Profile | Daily return schedule (base version) |
+| Asset | Profile | Daily return schedule (provisional) |
 |---|---|---|
-| A — "Sprinter" | Momentum then decay | +0.8%/day for the first 10 days held, then −0.2%/day |
-| B — "Compounder" | Slow steady growth | +0.25%/day, flat forever |
-| C — "Late bloomer" | Weak early, strong late | +0.05%/day for the first 40 days held, then +0.6%/day |
+| A — "Laggard" | Steady but weak | +0.3%/day, flat forever (distractor) |
+| B — "Compounder" | Steady, best over short holds | +0.6%/day, flat forever |
+| C — "Late bloomer" | Nothing early, strong late | 0%/day for the first 20 days held, then +0.8%/day |
 | Cash | Safe | 0%/day |
+
+**All assets are monotone in holding age — this is a hard constraint, revised 2026-08-27.**
+The original design used a "Sprinter" paying +0.8%/day for its first 10 days held and
+−0.2%/day thereafter. Because return clocks reset on switching (below) while a switch
+costs only 0.1%, the exact optimum farmed the reset: `A(10 days) → B(1 day) → A(10 days)`,
+forever, for 18 switches per episode, never touching C. Worse, the resulting policy was
+**identical at every `t`** — 0% of reachable states changed action on any day — which is
+precisely the degeneracy §3.1 exists to prevent. The environment would have tested nothing
+temporal.
+
+The failure is intrinsic to the shape, not to the numbers: *any* asset paying more when
+freshly held rewards re-entry. So no asset may have `late_rate < early_rate`. Horizon
+dependence now comes from monotone assets instead — B wins over short holds, C wins only
+if held past its breakpoint, and resetting C's clock is punishing rather than rewarding.
+Under the bimodal exit the optimum is a single clean switch: hold B on days 1–10, hold C
+from day 11 (`V* = 1.4233`).
 
 Notes:
 

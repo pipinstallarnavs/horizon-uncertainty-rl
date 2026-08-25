@@ -37,8 +37,17 @@ def test_cash_never_moves():
 
 def test_growth_is_one_plus_daily_return():
     m = default_market()
-    assert m.growth(m.index("A"), 1) == pytest.approx(1.008)
-    assert m.growth(m.index("A"), 11) == pytest.approx(0.998)
+    assert m.growth(m.index("B"), 1) == pytest.approx(1.006)
+    assert m.growth(m.index("C"), 20) == pytest.approx(1.0)
+    assert m.growth(m.index("C"), 21) == pytest.approx(1.008)
+
+
+def test_default_market_has_no_asset_that_rewards_re_entry():
+    # The degeneracy guard: if any asset paid more when freshly held, the optimum
+    # would farm the clock reset and the policy would stop depending on t.
+    m = default_market()
+    for asset in m.assets:
+        assert asset.late_rate >= asset.early_rate
 
 
 def test_switch_cost_defaults_to_ten_basis_points():

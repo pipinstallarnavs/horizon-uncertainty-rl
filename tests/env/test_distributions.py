@@ -17,24 +17,31 @@ def test_all_distributions_are_exhausted_by_day_N(factory):
     assert d.hazard(d.N) == pytest.approx(1.0)
 
 
-def test_bimodal_hazard_is_zero_in_the_dead_zone():
-    # DESIGN.md P1: hazard spikes on 1..10, is exactly zero on 11..90, spikes on 91..100.
+def test_bimodal_hazard_is_zero_outside_the_two_modes():
+    # Hazard is zero everywhere except the concentrated early day and the late window.
     d = bimodal_exit()
-    for t in range(11, 91):
+    for t in list(range(1, 10)) + list(range(11, 91)):
         assert d.hazard(t) == pytest.approx(0.0)
-    assert d.hazard(5) > 0.0
+    assert d.hazard(10) == pytest.approx(0.5)
     assert d.hazard(95) > 0.0
 
 
-def test_bimodal_resolves_the_mode_by_day_ten():
-    # Mode resolution is complete at t=10, but it arrives GRADUALLY: each survived
-    # day shifts posterior weight toward the late mode, so mean remaining time
-    # climbs smoothly from 50.5 to 85.5 rather than jumping.
+def test_bimodal_resolves_the_mode_sharply_at_day_ten():
+    # With the early mass concentrated on day 10, surviving it is a coin flip that
+    # resolves the mode in one step: expected remaining time jumps 43.75 -> 85.5.
     d = bimodal_exit()
-    assert d.mean_remaining(0) == pytest.approx(50.5)
+    assert d.mean_remaining(9) == pytest.approx(43.75)
     assert d.mean_remaining(10) == pytest.approx(85.5)
+    assert d.mean_remaining(10) - d.mean_remaining(9) > 40.0
+
+
+def test_spread_early_mode_resolves_gradually_instead():
+    # The rejected variant, kept as a regression guard: spreading the early mass
+    # makes mean remaining time climb smoothly, which is why it has no bright line.
+    d = bimodal_exit(early=(1, 10))
     curve = [d.mean_remaining(t) for t in range(0, 11)]
     assert all(later > earlier for earlier, later in zip(curve, curve[1:]))
+    assert curve[10] - curve[9] < 10.0
 
 
 def test_bimodal_bright_line_lives_in_the_hazard_not_the_mean():
@@ -55,7 +62,7 @@ def test_bimodal_bright_line_lives_in_the_hazard_not_the_mean():
 
 def test_bimodal_weight_splits_mass_between_modes():
     d = bimodal_exit(w=0.5)
-    assert d.pmf[1:11].sum() == pytest.approx(0.5)
+    assert d.pmf[10] == pytest.approx(0.5)
     assert d.pmf[91:101].sum() == pytest.approx(0.5)
 
 
