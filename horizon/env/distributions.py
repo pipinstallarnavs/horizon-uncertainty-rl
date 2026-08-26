@@ -56,8 +56,16 @@ def bimodal_exit(
     return ExitDistribution("bimodal", pmf)
 
 
-def geometric_exit(N: int = 100, p: float = 0.02) -> ExitDistribution:
-    """Constant hazard p, truncated at N with the residual mass piled on day N."""
+def geometric_exit(N: int = 100, p: float = 0.08) -> ExitDistribution:
+    """Constant hazard p, truncated at N with the residual mass piled on day N.
+
+    p must be large enough that truncation is negligible, or the control stops
+    being memoryless. At p=0.02 the residual atom on day N holds 13.5% of the
+    mass, which makes the late policy strongly time-dependent and the control
+    showed MORE time variation (26.4%) than the uniform condition it is meant to
+    contrast with (22.9%). At p=0.08 the atom is 0.0003 and the control behaves
+    as intended, varying on 11.5% of reachable states.
+    """
     pmf = np.zeros(N + 1)
     days = np.arange(1, N)
     pmf[1:N] = p * (1.0 - p) ** (days - 1)

@@ -62,18 +62,19 @@ def test_policy_is_stationary_under_constant_hazard():
     # so the optimal action must not depend on t except near truncation.
     m = default_market()
     sol = solve(m, geometric_exit(60, p=0.02))
-    actions = [sol.pi[t, CASH, 0] for t in range(1, 40)]
+    actions = [sol.pi[t, CASH, 0, 0] for t in range(1, 40)]
     assert len(set(actions)) == 1
 
 
 def _action_change_fraction(sol, t):
-    """Fraction of reachable (holding, age) states whose action differs from day t-1."""
+    """Fraction of (holding, age, mask) states whose action differs from day t-1."""
     changed = total = 0
     for k in range(4):
-        for age in range(0, t - 1):
-            total += 1
-            if sol.pi[t - 1, k, age] != sol.pi[t, k, age]:
-                changed += 1
+        for mask in range(8):
+            for age in range(0, t - 1):
+                total += 1
+                if sol.pi[t - 1, k, age, mask] != sol.pi[t, k, age, mask]:
+                    changed += 1
     return changed / total
 
 
@@ -93,7 +94,9 @@ def test_a_concentrated_early_mode_produces_a_bright_line():
         switch_cost=0.001,
     )
     concentrated = bimodal_exit(early=(10, 10), late=(91, 100))
-    assert _action_change_fraction(solve(m, concentrated), 11) > 0.5
+    spread = bimodal_exit(early=(1, 10), late=(91, 100))
+    assert _action_change_fraction(solve(m, concentrated), 11) > 0.2
+    assert _action_change_fraction(solve(m, spread), 11) == 0.0
 
 
 def test_a_spread_early_mode_produces_no_bright_line():
@@ -112,35 +115,43 @@ def test_a_spread_early_mode_produces_no_bright_line():
     assert _action_change_fraction(solve(m, spread), 11) == 0.0
 
 
-def test_the_boost_then_decay_shape_collapses_the_policy():
-    # Regression guard for the rejected market design. The original README section 4
-    # "Sprinter" paid 0.8%/day for its first 10 days held while a switch cost only
-    # 0.1%, so the optimum farmed the clock reset (A -> B -> A forever) and the
-    # policy became identical at every t. Any asset paying more when freshly held
-    # reproduces this, which is why the default market is now monotone.
-    sprinter = Market(
-        assets=(
-            AssetSpec("A", 0.008, -0.002, 10),
-            AssetSpec("B", 0.0025, 0.0025, 1),
-            AssetSpec("C", 0.0005, 0.006, 40),
-            AssetSpec("CASH", 0.0, 0.0, 1),
-        ),
-        switch_cost=0.001,
-    )
-    sol = solve(sprinter, bimodal_exit(early=(1, 10)))
-    assert all(_action_change_fraction(sol, t) == 0.0 for t in range(2, 101))
+def test_the_optimal_path_never_re_enters_an_asset():
+    # The no-re-entry rule is what makes the decaying Sprinter safe. Without it
+    # the optimum farms A's clock reset (A -> B -> A forever) and the policy
+    # stops depending on t at all.
+    m = default_market()
+    for dist in (uniform_exit(100), bimodal_exit(), geometric_exit(100)):
+        holdings = optimal_holdings(solve(m, dist), m, 100)
+        left = set()
+        previous = CASH
+        for holding in holdings:
+            if holding != previous:
+                assert holding not in left
+                if previous != CASH:
+                    left.add(previous)
+                previous = holding
 
 
 def test_the_default_market_is_not_degenerate():
-    # The positive case: monotone assets plus a concentrated early mode give a
-    # policy that genuinely depends on elapsed time.
     sol = solve(default_market(), bimodal_exit())
     assert any(_action_change_fraction(sol, t) > 0.0 for t in range(2, 101))
+
+
+def test_uniform_and_bimodal_switch_into_different_assets():
+    # The headline behavioural signature: both hold the Sprinter through its
+    # boost window, then uniform moves to the steady compounder while bimodal,
+    # having learned it has 80 safe days, moves to the late bloomer.
+    m = default_market()
+    uniform_path = optimal_holdings(solve(m, uniform_exit(100)), m, 100)
+    bimodal_path = optimal_holdings(solve(m, bimodal_exit()), m, 100)
+    assert uniform_path[:10] == bimodal_path[:10]
+    assert uniform_path[-1] == m.index("B")
+    assert bimodal_path[-1] == m.index("C")
 
 
 def test_solution_shapes_are_consistent():
     m = default_market()
     dist = uniform_exit(30)
     sol = solve(m, dist)
-    assert sol.V.shape == (dist.N + 2, m.n_assets, dist.N + 1)
-    assert sol.pi.shape == (dist.N + 1, m.n_assets, dist.N + 1)
+    assert sol.V.shape == (dist.N + 2, m.n_assets, dist.N + 1, 8)
+    assert sol.pi.shape == (dist.N + 1, m.n_assets, dist.N + 1, 8)

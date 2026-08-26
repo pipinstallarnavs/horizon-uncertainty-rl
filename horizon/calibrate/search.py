@@ -3,10 +3,10 @@
 Writes the whole feasible set, not just the winner, so the appendix can show
 that the study's conclusions do not hinge on one lucky parameter choice.
 
-Every candidate is monotone in holding age by construction. That is not a
-stylistic choice: an asset paying more when freshly held lets the optimum farm
-the age-clock reset, which collapses the policy to something identical at every
-t and destroys the whole experiment (see README section 4).
+Candidates use the README section 4 asset shapes, including the decaying
+Sprinter. That is only safe because re-entry is forbidden (horizon.env.rules);
+without the rule, an asset paying more when freshly held lets the optimum farm
+the age-clock reset and the policy stops depending on t entirely.
 """
 import itertools
 import json
@@ -17,13 +17,16 @@ from horizon.env.market import AssetSpec, Market
 from horizon.solver.backward import solve
 
 DEFAULT_GRID = {
-    "a_rate": [0.001, 0.002, 0.003],
-    "b_rate": [0.004, 0.005, 0.006, 0.007, 0.008],
-    "c_hi": [0.008, 0.010, 0.012, 0.014, 0.016, 0.020],
-    "c_k": [10, 15, 20, 25, 30, 40],
+    "a_hi": [0.006, 0.008, 0.010, 0.012],
+    "a_lo": [-0.004, -0.002, 0.0],
+    "a_k": [8, 10, 12, 15],
+    "b_rate": [0.002, 0.0025, 0.003, 0.004],
+    "c_lo": [0.0, 0.0005, 0.001],
+    "c_hi": [0.005, 0.006, 0.008, 0.010],
+    "c_k": [25, 30, 40, 50],
 }
 
-_KEYS = ("a_rate", "b_rate", "c_hi", "c_k")
+_KEYS = ("a_hi", "a_lo", "a_k", "b_rate", "c_lo", "c_hi", "c_k")
 
 
 def candidate_markets(grid: dict, switch_cost: float = 0.001):
@@ -32,9 +35,9 @@ def candidate_markets(grid: dict, switch_cost: float = 0.001):
         p = dict(zip(_KEYS, combo))
         yield Market(
             assets=(
-                AssetSpec("A", p["a_rate"], p["a_rate"], 1),
+                AssetSpec("A", p["a_hi"], p["a_lo"], p["a_k"]),
                 AssetSpec("B", p["b_rate"], p["b_rate"], 1),
-                AssetSpec("C", 0.0, p["c_hi"], p["c_k"]),
+                AssetSpec("C", p["c_lo"], p["c_hi"], p["c_k"]),
                 AssetSpec("CASH", 0.0, 0.0, 1),
             ),
             switch_cost=switch_cost,
@@ -44,8 +47,11 @@ def candidate_markets(grid: dict, switch_cost: float = 0.001):
 def _params_of(market: Market) -> dict:
     a, b, c, _ = market.assets
     return {
-        "a_rate": a.early_rate,
+        "a_hi": a.early_rate,
+        "a_lo": a.late_rate,
+        "a_k": a.breakpoint,
         "b_rate": b.early_rate,
+        "c_lo": c.early_rate,
         "c_hi": c.late_rate,
         "c_k": c.breakpoint,
     }

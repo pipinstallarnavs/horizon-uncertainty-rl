@@ -9,9 +9,10 @@ import itertools
 
 import numpy as np
 
-from horizon.env.episode import expected_wealth, wealth_path
+from horizon.env.episode import expected_wealth, is_legal, wealth_path
 from horizon.env.exit_dist import ExitDistribution
-from horizon.env.market import Market
+from horizon.env.market import CASH, Market
+from horizon.env.rules import burn, legal_targets
 from horizon.solver.backward import Solution, optimal_holdings
 
 MAX_BRUTE_FORCE_DAYS = 8
@@ -29,9 +30,12 @@ def brute_force_value(market: Market, dist: ExitDistribution):
         raise ValueError(f"brute force is intractable for N={N} (max {MAX_BRUTE_FORCE_DAYS})")
     best_value, best_sequence = -np.inf, None
     for sequence in itertools.product(range(K), repeat=N):
-        value = expected_wealth(market, list(sequence), dist.pmf)
+        candidate = list(sequence)
+        if not is_legal(candidate):
+            continue
+        value = expected_wealth(market, candidate, dist.pmf)
         if value > best_value:
-            best_value, best_sequence = value, list(sequence)
+            best_value, best_sequence = value, candidate
     return best_value, best_sequence
 
 
@@ -45,23 +49,38 @@ def monte_carlo_value(market: Market, dist: ExitDistribution, sol: Solution, n: 
     return float(samples.mean()), float(samples.std(ddof=1) / np.sqrt(n))
 
 
-def time_varying_fraction(sol: Solution, dist: ExitDistribution) -> float:
-    """Fraction of reachable (holding, age) pairs whose optimal action varies with t.
+def reachable_days(N: int, n_assets: int = 4) -> dict:
+    """Map each (holding, age, mask) state to the days on which it can occur.
 
-    A pair is reachable at day t only if age < t, since the position cannot have
-    been held longer than the episode has run.
+    Enumerated forward from the day-1 CASH start under the no-re-entry rule.
+    Using true reachability matters: scoring over the full index space counts
+    states no legal play can ever produce, and the optimal action in those states
+    is arbitrary, which adds noise that swamps the signal the check is after.
     """
+    current = {(CASH, 0, 0)}
+    days_of = {}
+    for t in range(1, N + 1):
+        for state in current:
+            days_of.setdefault(state, []).append(t)
+        following = set()
+        for holding, age, mask in current:
+            following.add((holding, age + 1, mask))
+            for target in legal_targets(mask, holding, n_assets):
+                following.add((target, 1, burn(mask, holding)))
+        current = following
+    return days_of
+
+
+def time_varying_fraction(sol: Solution, dist: ExitDistribution) -> float:
+    """Fraction of reachable states whose optimal action depends on the day."""
     N = dist.N
-    K = sol.pi.shape[1]
     varying = total = 0
-    for k in range(K):
-        for age in range(0, N):
-            days = [t for t in range(1, N + 1) if age < t]
-            if len(days) < 2:
-                continue
-            total += 1
-            if len({int(sol.pi[t, k, age]) for t in days}) > 1:
-                varying += 1
+    for (holding, age, mask), days in reachable_days(N, sol.pi.shape[1]).items():
+        if len(days) < 2 or age > N - 1:
+            continue
+        total += 1
+        if len({int(sol.pi[t, holding, age, mask]) for t in days}) > 1:
+            varying += 1
     return varying / total if total else 0.0
 
 

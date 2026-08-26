@@ -8,6 +8,7 @@ that day's return, because liquidation happens at that day's prices
 import numpy as np
 
 from horizon.env.market import CASH, Market
+from horizon.env.rules import burn, is_available
 
 
 def ages_for(holdings) -> list:
@@ -22,16 +23,37 @@ def ages_for(holdings) -> list:
     return ages
 
 
+def is_legal(holdings) -> bool:
+    """True if the sequence never re-enters a risky asset it has left."""
+    previous, mask = CASH, 0
+    for holding in holdings:
+        if holding != previous:
+            if not is_available(mask, holding):
+                return False
+            mask = burn(mask, previous)
+        previous = holding
+    return True
+
+
 def wealth_path(market: Market, holdings) -> np.ndarray:
-    """Wealth at the end of each day, starting from W[0] = 1.0."""
+    """Wealth at the end of each day, starting from W[0] = 1.0.
+
+    Rejects sequences that violate the no-re-entry rule rather than silently
+    pricing them, so an illegal policy can never contribute to a reported value.
+    """
     wealth = np.ones(len(holdings) + 1)
-    previous = CASH
-    age = 0
+    previous, mask, age = CASH, 0, 0
     for day, holding in enumerate(holdings, start=1):
         if holding == previous:
             age += 1
             cost = 1.0
         else:
+            if not is_available(mask, holding):
+                raise ValueError(
+                    f"illegal re-entry into asset {holding} on day {day}: "
+                    "an asset that has been left may not be held again"
+                )
+            mask = burn(mask, previous)
             age = 1
             cost = 1.0 - market.switch_cost
         wealth[day] = wealth[day - 1] * cost * market.growth(holding, age)

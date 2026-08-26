@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from horizon.env.episode import ages_for, expected_wealth, wealth_path
+from horizon.env.episode import ages_for, expected_wealth, is_legal, wealth_path
 from horizon.env.market import CASH, default_market
 
 
@@ -18,16 +18,35 @@ def test_holding_cash_forever_preserves_wealth():
     assert w[-1] == pytest.approx(1.0)
 
 
-def test_late_bloomer_pays_nothing_until_its_breakpoint():
+def test_sprinter_compounds_then_decays():
     m = default_market()
-    c = m.index("C")
-    w = wealth_path(m, [c] * 25)
-    # Day 1 pays C's zero early rate but still charges the switch cost out of CASH.
-    assert w[1] == pytest.approx(0.999)
-    # Nothing accrues through the 20-day dead period.
-    assert w[20] == pytest.approx(0.999)
-    # Past the breakpoint it compounds at the late rate.
-    assert w[25] == pytest.approx(0.999 * 1.008 ** 5)
+    a = m.index("A")
+    w = wealth_path(m, [a] * 12)
+    # Day 1 pays the boost rate but also the switch cost out of CASH.
+    assert w[1] == pytest.approx(0.999 * 1.008)
+    # Days 11 and 12 are past the breakpoint and shrink wealth.
+    assert w[12] < w[10]
+
+
+def test_re_entry_is_rejected_rather_than_priced():
+    m = default_market()
+    a, b = m.index("A"), m.index("B")
+    with pytest.raises(ValueError, match="illegal re-entry"):
+        wealth_path(m, [a, b, a])
+
+
+def test_cash_may_be_re_entered_freely():
+    m = default_market()
+    a = m.index("A")
+    assert is_legal([CASH, a, CASH])
+    wealth_path(m, [CASH, a, CASH])
+
+
+def test_is_legal_matches_what_wealth_path_accepts():
+    m = default_market()
+    a, b = m.index("A"), m.index("B")
+    assert is_legal([a, a, b, b])
+    assert not is_legal([a, b, a])
 
 
 def test_switching_charges_the_cost_once_per_switch():
@@ -35,7 +54,7 @@ def test_switching_charges_the_cost_once_per_switch():
     a, b = m.index("A"), m.index("B")
     w = wealth_path(m, [a, a, b])
     # Switch into A (cost), hold A (free), switch to B (cost).
-    expected = 0.999 * 1.003 * 1.003 * 0.999 * 1.006
+    expected = 0.999 * 1.008 * 1.008 * 0.999 * 1.0025
     assert w[3] == pytest.approx(expected)
 
 

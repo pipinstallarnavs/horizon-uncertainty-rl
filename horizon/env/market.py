@@ -47,25 +47,22 @@ class Market:
 
 
 def default_market(switch_cost: float = 0.001) -> Market:
-    """Provisional monotone parameters; final values frozen by calibration.
+    """The asset profiles from README section 4; final values frozen by calibration.
 
-    Deliberately contains no asset that pays MORE when freshly held. The original
-    "Sprinter" shape (boost then decay) made re-entry profitable: because the age
-    clock resets on switching, the optimum farmed A -> B -> A forever to restart
-    the boost, producing a policy identical at every t. That is exactly the
-    collapse DESIGN.md P1 forbids, and it is intrinsic to the shape rather than
-    to any particular numbers.
+    A "Sprinter" pays a high rate while freshly held and then decays, B
+    "Compounder" is flat, C "Late bloomer" is weak early and strong late. The
+    ranking therefore depends on how long the position will be held, which is
+    what makes horizon reasoning necessary.
 
-    Horizon dependence now comes from monotone assets instead: B pays a steady
-    rate that is best over short holds, while C pays nothing until its breakpoint
-    and then pays more than B, so it wins only if held long enough. Resetting C's
-    clock is punishing rather than rewarding, so no re-entry incentive exists.
+    A decaying asset is only safe because re-entry is forbidden
+    (horizon.env.rules). Without that rule the optimum farms A's clock reset by
+    bouncing A -> B -> A forever, and the policy stops depending on t entirely.
     """
     return Market(
         assets=(
-            AssetSpec("A", early_rate=0.003, late_rate=0.003, breakpoint=1),
-            AssetSpec("B", early_rate=0.006, late_rate=0.006, breakpoint=1),
-            AssetSpec("C", early_rate=0.0, late_rate=0.008, breakpoint=20),
+            AssetSpec("A", early_rate=0.008, late_rate=-0.002, breakpoint=10),
+            AssetSpec("B", early_rate=0.0025, late_rate=0.0025, breakpoint=1),
+            AssetSpec("C", early_rate=0.0005, late_rate=0.006, breakpoint=40),
             AssetSpec("CASH", early_rate=0.0, late_rate=0.0, breakpoint=1),
         ),
         switch_cost=switch_cost,

@@ -68,10 +68,10 @@ def test_target_report_exposes_every_target():
         assert isinstance(getattr(report, field), bool)
 
 
-def test_re_entry_detects_the_age_clock_exploit():
-    # A market where A pays far more when freshly held than a switch costs. The
-    # optimum bounces A -> B -> A to restart the boost, which expected-switch
-    # counts miss because uniform exit halves the visible count.
+def test_no_solved_policy_can_re_enter_an_asset():
+    # Now an invariant rather than a target: the no-re-entry rule is enforced
+    # inside the solver, so even a market built to be exploitable (A pays far
+    # more freshly held than a switch costs) cannot produce clock farming.
     from horizon.calibrate.targets import has_re_entry
 
     exploitable = Market(
@@ -83,15 +83,6 @@ def test_re_entry_detects_the_age_clock_exploit():
         ),
         switch_cost=0.002,
     )
-    dist = uniform_exit(100)
-    sol = solve(exploitable, dist)
-    assert has_re_entry(sol, exploitable, dist)
-    assert expected_switches(sol, exploitable, dist) <= 4.0  # target 4 is fooled
-
-
-def test_no_re_entry_on_a_monotone_market():
-    from horizon.calibrate.targets import has_re_entry
-
-    m = default_market()
-    dist = uniform_exit(100)
-    assert not has_re_entry(solve(m, dist), m, dist)
+    for market in (exploitable, default_market()):
+        for dist in (uniform_exit(100), bimodal_exit(100)):
+            assert not has_re_entry(solve(market, dist), market, dist)
