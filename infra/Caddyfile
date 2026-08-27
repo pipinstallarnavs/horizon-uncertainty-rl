@@ -1,0 +1,17 @@
+# Automatic TLS against a sslip.io hostname derived from the VM's static IP, so
+# the dashboard URL is stable across restarts, carries a real certificate, and
+# needs no domain purchase or third-party tunnel account.
+{$DASH_HOST} {
+    encode gzip
+
+    basic_auth {
+        {$DASH_USER} {$DASH_HASH}
+    }
+
+    reverse_proxy dashboard:8000
+
+    log {
+        output stdout
+        format console
+    }
+}

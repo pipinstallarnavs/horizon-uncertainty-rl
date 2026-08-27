@@ -1,0 +1,71 @@
+# The whole run. `restart: always` plus the VM's own auto-restart means the
+# researcher's laptop is never in the loop once this is up.
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: horizon
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: horizon
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U horizon"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  orchestrator:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      HORIZON_DSN: postgresql://horizon:${POSTGRES_PASSWORD}@postgres:5432/horizon
+      HORIZON_RUN_ID: ${HORIZON_RUN_ID}
+      HORIZON_PROJECT: ${HORIZON_PROJECT}
+      HORIZON_WORKERS: ${HORIZON_WORKERS:-24}
+      HORIZON_SA_KEY: /run/secrets/sa-key.json
+    volumes:
+      - /run/secrets:/run/secrets:ro
+    command: ["python", "-m", "horizon.runner.orchestrator"]
+
+  dashboard:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      HORIZON_DSN: postgresql://horizon:${POSTGRES_PASSWORD}@postgres:5432/horizon
+      HORIZON_RUN_ID: ${HORIZON_RUN_ID}
+    expose:
+      - "8000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: always
+    depends_on:
+      - dashboard
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DASH_HOST: ${DASH_HOST}
+      DASH_USER: ${DASH_USER:-horizon}
+      DASH_HASH: ${DASH_HASH}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddydata:/data
+      - caddyconfig:/config
+
+volumes:
+  pgdata:
+  caddydata:
+  caddyconfig:
