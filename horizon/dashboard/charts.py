@@ -212,12 +212,14 @@ def _holding_colour(idx) -> str:
 
 
 def equity_chart(wealth, entries=(), reference=None, bands=(), exit_day=None,
-                 width=680, height=268, pad=42, x_label="episode day",
+                 refusals=(), width=680, height=268, pad=42, x_label="episode day",
                  baseline=1.0):
     """Wealth over time with the position changes marked on the curve itself.
 
     `wealth`/`reference` are [(day, w)]; `entries` are (day, holding_index);
-    `bands` are (first_day, last_day, holding_index) for the strip beneath.
+    `bands` are (first_day, last_day, holding_index) for the strip beneath;
+    `refusals` are (day, requested_index) for moves the rules cancelled, drawn
+    as hollow crosses so an attempted trade is never mistaken for a real one.
     """
     clean = _clean(wealth)
     if not clean:
@@ -303,6 +305,20 @@ def equity_chart(wealth, entries=(), reference=None, bands=(), exit_day=None,
             f'fill="var({colour})" text-anchor="middle">d{day}&#8594;{label}</text>'
         )
 
+    for day, requested in refusals:
+        if not (x_lo <= day <= x_hi):
+            continue
+        x, y = px(day), py(at.get(day, clean[-1][1]))
+        label = HOLDING_LABEL[int(requested)] if 0 <= int(requested) < 4 else "?"
+        out.append(
+            f'<line x1="{x:.1f}" y1="{pad - 8}" x2="{x:.1f}" y2="{pad + ph:.1f}" '
+            f'class="refused-line"/>'
+            f'<path d="M{x - 4.5:.1f},{y - 4.5:.1f} l9,9 M{x + 4.5:.1f},{y - 4.5:.1f} l-9,9" '
+            f'class="refused-mark"/>'
+            f'<text x="{x:.1f}" y="{pad - 11}" class="entry-label" '
+            f'fill="var(--hazard)" text-anchor="middle">d{day}&#10007;{label}</text>'
+        )
+
     # Holding strip: what was owned, every day, with no gaps to interpret.
     top = pad + ph + 8
     for first, last, holding in bands:
@@ -335,6 +351,11 @@ def equity_chart(wealth, entries=(), reference=None, bands=(), exit_day=None,
     keys = ['<span class="key"><i style="background:var(--signal)"></i>agent wealth</span>']
     if ref:
         keys.append('<span class="key"><i class="dash"></i>optimal policy, same world</span>')
+    if refusals:
+        keys.append(
+            '<span class="key"><i style="background:var(--hazard)"></i>'
+            "re-entry refused by the rules</span>"
+        )
     return f'<div class="chart-wrap">{"".join(out)}</div><div class="legend">{"".join(keys)}</div>'
 
 

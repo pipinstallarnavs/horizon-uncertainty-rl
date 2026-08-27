@@ -386,6 +386,22 @@ class Repository:
             )
             return cur.fetchall()
 
+    def refused_reentries(self, run_id: str, limit: int = 40):
+        """Every day the rules cancelled a move back into a spent asset.
+
+        These never reach switch_days -- the move did not happen -- so they are
+        invisible to any analysis built on the episode summary, while being the
+        clearest single sign that the agent lost track of what it had spent.
+        """
+        with self.cursor() as cur:
+            cur.execute(
+                f"""SELECT {self.TRACE_COLUMNS} FROM agent_days
+                    WHERE run_id = %s AND error_class = 'illegal_action'
+                    ORDER BY episode DESC, day LIMIT %s""",
+                (run_id, limit),
+            )
+            return cur.fetchall()
+
     def episode_records(self, run_id: str):
         with self.cursor() as cur:
             cur.execute(

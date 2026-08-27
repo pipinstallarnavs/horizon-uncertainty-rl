@@ -255,6 +255,44 @@ details.think > summary:focus-visible { outline: 2px solid var(--signal); outlin
               color: var(--muted); margin: 9px 0 0; }
 .no-trace { font-size: 11.5px; color: var(--muted); font-style: italic; }
 
+/* ---- event ledger -------------------------------------------------------- */
+.ledger { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
+.ev { display: grid; grid-template-columns: 56px 1fr; gap: 2px 12px; align-items: baseline;
+      padding: 10px 0 11px; border-bottom: 1px solid var(--rule); border-left: 3px solid transparent;
+      padding-left: 11px; }
+.ev-day { font-weight: 700; font-size: 13px; }
+.ev-what { font-size: 13.5px; }
+.ev-meta { grid-column: 2; font-size: 11.5px; color: var(--muted); }
+.ev-entered { border-left-color: var(--asset-a); }
+.ev-rotated { border-left-color: var(--asset-c); }
+.ev-exited  { border-left-color: var(--asset-cash); }
+.ev-refused { border-left-color: var(--hazard); background: rgba(180,68,46,.06); }
+.spent { color: var(--hazard); }
+
+/* ---- transcript ---------------------------------------------------------- */
+.transcript { border-top: 1px solid var(--rule); }
+.entry { padding: 12px 0 13px 12px; border-bottom: 1px solid var(--rule);
+         border-left: 3px solid transparent; }
+.entry-held { border-left-color: var(--rule); }
+.entry-entered { border-left-color: var(--asset-a); }
+.entry-rotated { border-left-color: var(--asset-c); }
+.entry-exited  { border-left-color: var(--asset-cash); }
+.entry-refused { border-left-color: var(--hazard); background: rgba(180,68,46,.06); }
+.entry-head { display: flex; gap: 8px 16px; flex-wrap: wrap; align-items: baseline;
+              font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+.entry-day { font-size: 14px; font-weight: 700; color: var(--ink); min-width: 62px; }
+.entry-state b, .entry-belief b { color: var(--ink); }
+.entry-tag { font-size: 9.5px; letter-spacing: .1em; text-transform: uppercase;
+             padding: 2px 7px; border: 1px solid currentColor; }
+.tag-held { color: var(--muted); }
+.tag-entered { color: var(--asset-a); }
+.tag-rotated { color: var(--asset-c); }
+.tag-exited { color: var(--muted); }
+.tag-refused { color: var(--hazard); font-weight: 700; }
+.entry .trace { max-height: none; }
+.btn.ghost { background: transparent; color: var(--ink); }
+.btn.ghost:hover { background: var(--ink); color: var(--paper); }
+
 /* ---- action -------------------------------------------------------------- */
 .btn { display: inline-block; padding: 10px 18px; background: var(--ink); color: var(--paper);
        text-decoration: none; font-size: 12px; font-weight: 500; letter-spacing: .1em;
@@ -295,9 +333,11 @@ SCRIPT = """
     return keys;
   }
 
+  var expandAll = false;
+
   function restore(slot, keys, scrolls) {
     slot.querySelectorAll('details[data-key]').forEach(function (d) {
-      if (keys[d.dataset.key]) d.open = true;
+      if (expandAll || keys[d.dataset.key]) d.open = true;
     });
     slot.querySelectorAll('.log-wrap').forEach(function (el, i) {
       if (scrolls[i]) el.scrollTop = scrolls[i];
@@ -346,9 +386,21 @@ SCRIPT = """
   document.addEventListener('click', function (e) {
     var tab = e.target.closest('.tab');
     if (tab) { e.preventDefault(); show(tab.dataset.tab); return; }
+    var all = e.target.closest('[data-expand-all]');
+    if (all) {
+      // Reading a whole episode means reading every day, not clicking eighty
+      // disclosures. The state has to outlive the poll or it undoes itself.
+      expandAll = !expandAll;
+      document.querySelectorAll('.transcript details[data-key]').forEach(function (d) {
+        d.open = expandAll;
+      });
+      all.textContent = expandAll ? 'Collapse every day' : 'Expand every day';
+      return;
+    }
     var link = e.target.closest('a.chip, a.btn[data-back]');
     if (link && current === 'decisions') {
       e.preventDefault();
+      expandAll = false;
       url.decisions = link.getAttribute('href');
       swap('decisions', url.decisions).then(function () {
         var slot = document.querySelector('.tabpanel[data-tab="decisions"]');

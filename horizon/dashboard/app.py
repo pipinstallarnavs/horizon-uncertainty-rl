@@ -28,6 +28,13 @@ from horizon.dashboard.decisions import (
     trade_rows,
 )
 from horizon.dashboard.render import page
+from horizon.dashboard.transcript import (
+    event_ledger,
+    refusal_markers,
+    refusal_rows,
+    transcript,
+    walk,
+)
 from horizon.env.distributions import DISTRIBUTIONS
 from horizon.store.repository import Repository
 
@@ -307,29 +314,47 @@ def _decision_log(run_id: str, episode: int = None) -> str:
         # to its own last day -- which is the exit, since a rollout stops there.
         exits = {int(e): int(d) for e, d, *_ in episodes}
         exit_day = exits.get(int(episode)) or (int(row(trace[-1])["day"]) if trace else None)
+        walked = walk(trace)
         return f"""
         <section class="panel">
-          <h2>Episode {episode} &mdash; P&amp;L and entries</h2>
+          <h2>Episode {episode} &mdash; P&amp;L, entries and exits</h2>
           <p class="why">Wealth day by day, with a marker on the curve at every moment
           the agent changed position and the strip beneath showing what it held in
-          between. The dashed line is the optimal policy in the identical market; the
-          red line is the day the exit actually landed and the position was liquidated.</p>
+          between. Hollow crosses are moves the rules cancelled &mdash; attempts to buy
+          back an asset it had already given up. The dashed line is the optimal policy
+          in the identical market; the red line is the day the exit landed.</p>
           {episode_picker(episodes, episode, run_id)}
-          {_episode_equity(trace, exit_day, cell, horizon)}
+          {_episode_equity(walked, exit_day, cell, horizon)}
         </section>
 
         <section class="panel">
-          <h2>Episode {episode}, day by day</h2>
-          <p class="why">Filled markers are days the position changed. "Said remaining"
-          is the agent's own estimate of days left; "true" is the actual conditional
-          mean it should have held. Expand any row to read the model's full reasoning
-          for that day, exactly as it was returned.</p>
-          {episode_trace_table(trace, episode)}
+          <h2>What it did, in order</h2>
+          <p class="why">Every entry, exit, rotation and refused re-entry, with what the
+          agent believed about the remaining time at that moment and what it had already
+          spent for good.</p>
+          {event_ledger(walked)}
+        </section>
+
+        <section class="panel">
+          <h2>Every day, in the model's own words</h2>
+          <p class="why">The complete transcript, including the days it did nothing.
+          Reasoning is shown exactly as the API returned it, unedited and untrimmed.
+          Days where it thought hard and chose to hold are not the same finding as days
+          it never engaged, and only the full sequence separates them.</p>
+          <p><button class="btn ghost" data-expand-all type="button">Expand every day</button></p>
+          {transcript(walked, run_id)}
           <p style="margin-top:14px"><a class="btn" data-back href="/decisions?run={run_id}">Back to all trades</a></p>
+        </section>
+
+        <section class="panel">
+          <h2>Episode {episode}, as a table</h2>
+          <p class="why">The same days in compact form, for scanning rather than reading.</p>
+          {episode_trace_table(trace, episode)}
         </section>"""
 
     trades = _safe(lambda: r.recent_trades(run_id), [])
     costly = _safe(lambda: r.costliest_decisions(run_id), [])
+    refused = _safe(lambda: r.refused_reentries(run_id), [])
 
     return f"""
     <section class="panel">
@@ -342,6 +367,15 @@ def _decision_log(run_id: str, episode: int = None) -> str:
       its P&amp;L curve with every entry marked.</p>
       {episode_picker(episodes, run=run_id)}
       {trade_rows(trades)}
+    </section>
+
+    <section class="panel">
+      <h2>Moves the rules refused</h2>
+      <p class="why">Attempts to re-enter an asset the agent had already left. These
+      never appear in the trade record &mdash; the move did not happen &mdash; but they
+      are the clearest evidence available that the agent lost track of what it had
+      permanently spent.</p>
+      {refusal_rows(refused)}
     </section>
 
     <section class="panel">
@@ -367,13 +401,12 @@ def _fleet_equity(rows, cell, horizon):
     )
 
 
-def _episode_equity(trace, exit_day, cell, horizon):
+def _episode_equity(walked, exit_day, cell, horizon):
     """One agent's P&L, with every entry marked on the curve where it happened."""
-    rows = [row(t) for t in trace]
-    wealth = [(int(t["day"]), float(t["wealth"])) for t in rows]
+    wealth = [(int(w["day"]), float(w["wealth"])) for w in walked]
     if not wealth:
         return empty_chart(680, 268, "no days recorded")
-    bands, entries = holding_bands([(int(t["day"]), int(t["holding"])) for t in rows])
+    bands, entries = holding_bands([(int(w["day"]), int(w["holding"])) for w in walked])
     last = wealth[-1][0]
     return equity_chart(
         wealth,
@@ -381,6 +414,7 @@ def _episode_equity(trace, exit_day, cell, horizon):
         reference=_reference(cell.get("exit", "uniform"), horizon, last),
         bands=bands,
         exit_day=exit_day,
+        refusals=refusal_markers(walked),
         width=1180, height=310,
     )
 

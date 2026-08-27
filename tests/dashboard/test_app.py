@@ -202,7 +202,7 @@ def test_overview_carries_the_fleet_equity_panel():
 
 def test_episode_view_leads_with_the_pnl_curve():
     text = client.get("/decisions?episode=1").text
-    assert "P&amp;L and entries" in text
+    assert "P&amp;L, entries and exits" in text
 
 
 def test_the_optimal_reference_curve_is_solvable_without_a_database():
