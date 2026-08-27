@@ -18,8 +18,13 @@ def test_report_includes_the_curves_needed_for_figure_one():
 
 
 def test_report_records_the_non_collapse_fraction():
-    report = environment_report(default_market(), N=40)
-    assert report["uniform"]["time_varying_fraction"] > report["geometric"]["time_varying_fraction"]
+    # Checked at the calibrated horizon. The frozen parameters are tuned for
+    # N=100 (the late bloomer does not even reach its breakpoint before day 50),
+    # so a shorter horizon does not separate the conditions.
+    report = environment_report(default_market(), N=100)
+    assert report["uniform"]["time_varying_fraction"] >= 0.20
+    assert report["bimodal"]["time_varying_fraction"] >= 0.20
+    assert report["geometric"]["time_varying_fraction"] < 0.20
 
 
 def test_describe_path_compresses_runs():

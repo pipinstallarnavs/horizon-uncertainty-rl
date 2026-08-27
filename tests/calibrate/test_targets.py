@@ -36,10 +36,11 @@ def test_no_crossover_when_one_asset_dominates_at_all_horizons():
 
 
 def test_crossover_is_found_when_the_best_holding_changes():
-    # Under the bimodal exit the optimum is B then C, switching at day 11.
+    # With the frozen parameters the optimum rides the Sprinter through its
+    # 15-day boost window and then switches, so the crossover lands on day 16.
     m = default_market()
     dist = bimodal_exit()
-    assert crossover_day(solve(m, dist), m, dist) == 11
+    assert crossover_day(solve(m, dist), m, dist) == 16
 
 
 def test_expected_switches_counts_the_entry_out_of_cash():

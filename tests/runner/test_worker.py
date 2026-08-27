@@ -66,8 +66,8 @@ def test_regret_is_zero_when_the_optimal_agent_survives_to_the_horizon():
 def test_switch_days_are_recorded():
     market, dist, sol = setup()
     _, summary = play_episode(OptimalAgent(sol), market, dist, sol, exit_day=100)
-    # Optimal under uniform: enter A on day 1, move to B on day 11.
-    assert summary["switch_days"][:2] == [1, 11]
+    # Optimal under uniform: enter A on day 1, move to B when its boost ends.
+    assert summary["switch_days"][:2] == [1, 16]
 
 
 def test_price_counts_thought_tokens_as_output():

@@ -10,6 +10,7 @@ from horizon.env.episode import expected_wealth
 from horizon.env.exit_dist import ExitDistribution
 from horizon.env.market import CASH, Market
 from horizon.solver.backward import Solution, optimal_holdings, solve
+from horizon.solver.verify import time_varying_fraction
 
 MIN_CROSSOVER_DAY = 15
 MAX_CROSSOVER_DAY = 85
@@ -17,6 +18,7 @@ MIN_VALUE_MARGIN = 0.05
 MIN_CASH_MARGIN = 0.15
 MIN_SWITCHES = 1.0
 MAX_SWITCHES = 4.0
+MIN_TIME_VARYING = 0.20
 
 
 def fixed_asset_values(market: Market, dist: ExitDistribution) -> dict:
@@ -84,6 +86,7 @@ class TargetReport:
     no_dominant_asset: bool
     cost_relevance: bool
     no_re_entry: bool
+    non_collapse: bool
 
     @property
     def all_pass(self) -> bool:
@@ -95,6 +98,7 @@ class TargetReport:
                 self.no_dominant_asset,
                 self.cost_relevance,
                 self.no_re_entry,
+                self.non_collapse,
             )
         )
 
@@ -131,4 +135,14 @@ def evaluate_targets(
         has_re_entry(sol_u, market, dist_uniform) or has_re_entry(sol_b, market, dist_bimodal)
     )
 
-    return TargetReport(interior, value_sep, cash_sep, no_dominant, cost_relevant, clean)
+    # DESIGN.md P1's gate. Omitting it let a candidate win the first search whose
+    # uniform policy varied on only 8.6% of reachable states, which would have
+    # made the uniform condition test almost nothing temporal.
+    non_collapse = (
+        time_varying_fraction(sol_u, dist_uniform) >= MIN_TIME_VARYING
+        and time_varying_fraction(sol_b, dist_bimodal) >= MIN_TIME_VARYING
+    )
+
+    return TargetReport(
+        interior, value_sep, cash_sep, no_dominant, cost_relevant, clean, non_collapse
+    )

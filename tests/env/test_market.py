@@ -37,12 +37,12 @@ def test_cash_never_moves():
 
 def test_growth_is_one_plus_daily_return():
     m = default_market()
-    assert m.growth(m.index("A"), 1) == pytest.approx(1.008)
-    assert m.growth(m.index("A"), 11) == pytest.approx(0.998)
-    assert m.growth(m.index("C"), 41) == pytest.approx(1.006)
+    assert m.growth(m.index("A"), 1) == pytest.approx(1.012)
+    assert m.growth(m.index("A"), 16) == pytest.approx(1.0)
+    assert m.growth(m.index("C"), 51) == pytest.approx(1.008)
 
 
-def test_the_sprinter_decays_which_only_the_no_re_entry_rule_makes_safe():
+def test_the_sprinter_pays_less_once_stale_which_only_no_re_entry_makes_safe():
     # A pays more when freshly held. That is the whole point of the Sprinter, and
     # it is exploitable unless re-entry is forbidden (horizon.env.rules).
     m = default_market()

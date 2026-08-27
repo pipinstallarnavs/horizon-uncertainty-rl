@@ -47,12 +47,18 @@ class Market:
 
 
 def default_market(switch_cost: float = 0.001) -> Market:
-    """The asset profiles from README section 4; final values frozen by calibration.
+    """Frozen calibrated parameters (2026-08-27).
 
-    A "Sprinter" pays a high rate while freshly held and then decays, B
-    "Compounder" is flat, C "Late bloomer" is weak early and strong late. The
-    ranking therefore depends on how long the position will be held, which is
-    what makes horizon reasoning necessary.
+    Chosen by automated search over 9,216 candidates against the calibration
+    targets, never hand-tuned. 1,386 combinations were feasible; the winner is
+    the highest value-separation margin among those that also pass the
+    non-collapse check on the uniform condition. The full feasible set is
+    committed in data/calibration.json for the appendix, so the study's
+    conclusions can be shown not to hinge on one lucky parameter choice.
+
+    A "Sprinter" pays a high rate while freshly held and then stops, B
+    "Compounder" is flat, C "Late bloomer" is weak early and strong late, so the
+    best holding depends on how long it will be held.
 
     A decaying asset is only safe because re-entry is forbidden
     (horizon.env.rules). Without that rule the optimum farms A's clock reset by
@@ -60,9 +66,9 @@ def default_market(switch_cost: float = 0.001) -> Market:
     """
     return Market(
         assets=(
-            AssetSpec("A", early_rate=0.008, late_rate=-0.002, breakpoint=10),
-            AssetSpec("B", early_rate=0.0025, late_rate=0.0025, breakpoint=1),
-            AssetSpec("C", early_rate=0.0005, late_rate=0.006, breakpoint=40),
+            AssetSpec("A", early_rate=0.012, late_rate=0.0, breakpoint=15),
+            AssetSpec("B", early_rate=0.003, late_rate=0.003, breakpoint=1),
+            AssetSpec("C", early_rate=0.0005, late_rate=0.008, breakpoint=50),
             AssetSpec("CASH", early_rate=0.0, late_rate=0.0, breakpoint=1),
         ),
         switch_cost=switch_cost,
