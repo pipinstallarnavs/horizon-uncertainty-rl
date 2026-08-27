@@ -1,15 +1,13 @@
 # Automatic TLS against a sslip.io hostname derived from the VM's static IP, so
 # the dashboard URL is stable across restarts, carries a real certificate, and
 # needs no domain purchase or third-party tunnel account.
+#
+# No authentication: the page shows only synthetic experiment telemetry and is
+# meant to be opened by anyone holding the link. provision.sh rewrites this file
+# on the VM at boot with the hostname substituted in.
 {$DASH_HOST} {
     encode gzip
-
-    basic_auth {
-        {$DASH_USER} {$DASH_HASH}
-    }
-
     reverse_proxy dashboard:8000
-
     log {
         output stdout
         format console

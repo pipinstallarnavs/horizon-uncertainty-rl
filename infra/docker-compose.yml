@@ -56,10 +56,6 @@ services:
     ports:
       - "80:80"
       - "443:443"
-    environment:
-      DASH_HOST: ${DASH_HOST}
-      DASH_USER: ${DASH_USER:-horizon}
-      DASH_HASH: ${DASH_HASH}
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddydata:/data
