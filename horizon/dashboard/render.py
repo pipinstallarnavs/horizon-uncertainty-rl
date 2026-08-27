@@ -29,18 +29,26 @@ STYLE = """
   --signal: #2e6b5e;
   --cool:   #3f6187;
   --grid:   rgba(22,32,42,.07);
+  /* Assets get their own ramp. Hazard red, brass and viridian already mean
+     something specific; reusing them for holdings would make the page lie. */
+  --asset-a:    #3f6187;
+  --asset-b:    #8a6a2f;
+  --asset-c:    #2e6b5e;
+  --asset-cash: #97a3a2;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --paper:#12181d; --panel:#19212a; --ink:#e6eae4; --muted:#8c9a99;
     --rule:#2b3640; --hazard:#e0705a; --thought:#d3a75c; --signal:#6cc0a8;
     --cool:#7ba3cf; --grid:rgba(230,234,228,.07);
+    --asset-a:#7ba3cf; --asset-b:#d3a75c; --asset-c:#6cc0a8; --asset-cash:#6d7b7a;
   }
 }
 :root[data-theme="dark"] {
   --paper:#12181d; --panel:#19212a; --ink:#e6eae4; --muted:#8c9a99;
   --rule:#2b3640; --hazard:#e0705a; --thought:#d3a75c; --signal:#6cc0a8;
   --cool:#7ba3cf; --grid:rgba(230,234,228,.07);
+  --asset-a:#7ba3cf; --asset-b:#d3a75c; --asset-c:#6cc0a8; --asset-cash:#6d7b7a;
 }
 
 * { box-sizing: border-box; }
@@ -152,6 +160,19 @@ main { padding: 22px 26px 72px; max-width: 1240px; margin: 0 auto; }
           font-size: 11.5px; color: var(--muted); }
 .key { display: inline-flex; align-items: center; gap: 6px; }
 .key i { width: 12px; height: 3px; display: inline-block; }
+.key i.dash { background: repeating-linear-gradient(90deg, var(--muted) 0 4px, transparent 4px 7px); }
+
+/* ---- equity curve -------------------------------------------------------- */
+.breakeven { stroke: var(--muted); stroke-width: 1; stroke-dasharray: 2 4; }
+.reference { fill: none; stroke: var(--muted); stroke-width: 1.6; stroke-dasharray: 5 4; }
+.entry-line { stroke-width: 1.2; stroke-dasharray: 2 4; opacity: .75; }
+.entry-label { font-size: 10px; font-weight: 700; letter-spacing: .02em;
+               font-family: "JetBrains Mono", ui-monospace, monospace; }
+.exit-line { stroke: var(--hazard); stroke-width: 1.6; }
+.exit-label { fill: var(--hazard); font-size: 10px; letter-spacing: .06em;
+              font-family: "JetBrains Mono", ui-monospace, monospace; }
+.strip-label { fill: var(--panel); font-size: 9px; font-weight: 700; letter-spacing: .08em;
+               font-family: "JetBrains Mono", ui-monospace, monospace; }
 
 /* ---- tables -------------------------------------------------------------- */
 table.data { border-collapse: collapse; width: 100%; font-size: 13px; }
@@ -196,6 +217,31 @@ table.log tr.said q { color: var(--muted); font-size: 11.5px; font-style: normal
 .chip .dim { color: var(--muted); font-size: 10.5px; margin: 0; }
 .chip:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
 
+/* ---- reasoning trace ----------------------------------------------------- */
+details.think { margin: 4px 0 2px; }
+details.think > summary {
+  cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: 7px;
+  font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--thought);
+  padding: 2px 0; user-select: none;
+}
+details.think > summary::-webkit-details-marker { display: none; }
+details.think > summary::before {
+  content: "B8"; display: inline-block; transition: transform .15s ease; font-size: 11px;
+}
+details.think[open] > summary::before { transform: rotate(90deg); }
+details.think > summary:hover { color: var(--ink); }
+details.think > summary:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+.trace {
+  margin: 8px 0 4px; padding: 11px 13px; background: var(--paper);
+  border-left: 2px solid var(--thought); max-height: 340px; overflow-y: auto;
+  font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11.5px;
+  line-height: 1.62; color: var(--ink); white-space: pre-wrap; word-break: break-word;
+}
+.trace.reply { border-left-color: var(--signal); }
+.trace-head { font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+              color: var(--muted); margin: 9px 0 0; }
+.no-trace { font-size: 11.5px; color: var(--muted); font-style: italic; }
+
 /* ---- action -------------------------------------------------------------- */
 .btn { display: inline-block; padding: 10px 18px; background: var(--ink); color: var(--paper);
        text-decoration: none; font-size: 12px; font-weight: 500; letter-spacing: .1em;
@@ -222,7 +268,26 @@ SCRIPT = """
 (function () {
   var busy = false;
   var current = 'overview';
-  var sources = { overview: '/live', decisions: '/decisions' };
+  // The decisions tab is stateful: opening one episode has to survive the next
+  // poll, so the tab remembers its own URL instead of always refetching /decisions.
+  var url = { overview: '/live', decisions: '/decisions' };
+
+  function openKeys(slot) {
+    var keys = {};
+    slot.querySelectorAll('details[data-key]').forEach(function (d) {
+      if (d.open) keys[d.dataset.key] = 1;
+    });
+    return keys;
+  }
+
+  function restore(slot, keys, scrolls) {
+    slot.querySelectorAll('details[data-key]').forEach(function (d) {
+      if (keys[d.dataset.key]) d.open = true;
+    });
+    slot.querySelectorAll('.log-wrap').forEach(function (el, i) {
+      if (scrolls[i]) el.scrollTop = scrolls[i];
+    });
+  }
 
   function show(name) {
     current = name;
@@ -235,17 +300,27 @@ SCRIPT = """
     tick();
   }
 
+  async function swap(name, href) {
+    var slot = document.querySelector('.tabpanel[data-tab="' + name + '"]');
+    if (!slot) return;
+    var res = await fetch(href, { cache: 'no-store' });
+    if (!res.ok) return;
+    // A reader with a reasoning trace expanded must not have it snap shut every
+    // five seconds, and a half-scrolled log must not jump back to the top.
+    var keys = openKeys(slot);
+    var scrolls = Array.prototype.map.call(
+      slot.querySelectorAll('.log-wrap'), function (el) { return el.scrollTop; });
+    slot.innerHTML = await res.text();
+    restore(slot, keys, scrolls);
+  }
+
   async function tick() {
     if (busy || document.hidden) return;
     busy = true;
     try {
-      var res = await fetch(sources[current], { cache: 'no-store' });
-      if (res.ok) {
-        var slot = document.querySelector('.tabpanel[data-tab="' + current + '"]');
-        if (slot) slot.innerHTML = await res.text();
-        var stamp = document.getElementById('stamp');
-        if (stamp) stamp.textContent = new Date().toLocaleTimeString();
-      }
+      await swap(current, url[current]);
+      var stamp = document.getElementById('stamp');
+      if (stamp) stamp.textContent = new Date().toLocaleTimeString();
     } catch (e) {
       /* keep the last good render on screen rather than blanking it */
     } finally {
@@ -259,12 +334,11 @@ SCRIPT = """
     var link = e.target.closest('a.chip, a.btn[data-back]');
     if (link && current === 'decisions') {
       e.preventDefault();
-      fetch(link.getAttribute('href'), { cache: 'no-store' })
-        .then(function (r) { return r.text(); })
-        .then(function (html) {
-          var slot = document.querySelector('.tabpanel[data-tab="decisions"]');
-          if (slot) { slot.innerHTML = html; slot.scrollIntoView({ block: 'start' }); }
-        });
+      url.decisions = link.getAttribute('href');
+      swap('decisions', url.decisions).then(function () {
+        var slot = document.querySelector('.tabpanel[data-tab="decisions"]');
+        if (slot) slot.scrollIntoView({ block: 'start' });
+      });
     }
   });
 
