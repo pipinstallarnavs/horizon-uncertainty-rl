@@ -71,6 +71,10 @@ def play_episode(agent, market, dist, solution, exit_day: int, horizon: int = 10
 
         pi_star = int(solution.pi[day, holding, age, mask])
         action = decision.action
+        # What the model asked for, before the rules had their say. Overwriting
+        # this with the corrected action hid which asset it tried to re-enter --
+        # which is the single most diagnostic thing an illegal move tells us.
+        requested = decision.action
         if action != holding and not is_available(mask, action):
             decision = Decision(
                 action=holding, belief=decision.belief, raw=decision.raw,
@@ -110,7 +114,7 @@ def play_episode(agent, market, dist, solution, exit_day: int, horizon: int = 10
                 # truncating it mid-argument loses exactly the part worth reading.
                 "thought_text": (decision.thought_text or "")[:16000],
                 "parsed_belief": decision.belief,
-                "parsed_action": decision.action,
+                "parsed_action": requested,
                 "repair_used": decision.repair_used,
                 "error_class": decision.error_class,
                 "truth_m_t": dist.mean_remaining(day),
