@@ -190,3 +190,167 @@ def _fmt(v: float) -> str:
     if a >= 1:
         return f"{v:.1f}"
     return f"{v:.2f}"
+
+
+# --------------------------------------------------------------------------- #
+# Equity curves
+#
+# The question "when did it decide to enter?" is only answerable next to the
+# money: a trade on day 16 means nothing until you can see the curve bend after
+# it. So entries are drawn *on* the wealth line, not in a separate panel, and
+# the holding strip underneath says what was owned for every day in between.
+
+HOLDING_COLOUR = ("--asset-a", "--asset-b", "--asset-c", "--asset-cash")
+HOLDING_LABEL = ("A", "B", "C", "CASH")
+
+
+def _holding_colour(idx) -> str:
+    try:
+        return HOLDING_COLOUR[int(idx)]
+    except (TypeError, ValueError, IndexError):
+        return "--muted"
+
+
+def equity_chart(wealth, entries=(), reference=None, bands=(), exit_day=None,
+                 width=680, height=268, pad=42, x_label="episode day",
+                 baseline=1.0):
+    """Wealth over time with the position changes marked on the curve itself.
+
+    `wealth`/`reference` are [(day, w)]; `entries` are (day, holding_index);
+    `bands` are (first_day, last_day, holding_index) for the strip beneath.
+    """
+    clean = _clean(wealth)
+    if not clean:
+        return empty_chart(width, height, "waiting for this episode's first day")
+
+    strip = 13
+    ref = _clean(reference or [])
+    xs = [x for x, _ in clean + ref]
+    ys = [float(y) for _, y in clean + ref] + [baseline]
+    x_lo, x_hi = min(xs), max(xs)
+    y_lo, y_hi = min(ys), max(ys)
+    span = (y_hi - y_lo) or max(abs(y_hi), 1.0) * 0.1
+    y_lo, y_hi = y_lo - span * 0.10, y_hi + span * 0.16
+
+    pw = width - 2 * pad
+    ph = height - 2 * pad - strip - 8
+
+    def px(x):
+        return pad + pw * (x - x_lo) / ((x_hi - x_lo) or 1)
+
+    def py(y):
+        return pad + ph * (1.0 - (float(y) - y_lo) / (y_hi - y_lo))
+
+    out = [
+        f'<svg viewBox="0 0 {width} {height}" class="chart" role="img" '
+        f'aria-label="Wealth over time with position changes marked">'
+    ]
+
+    for i in range(5):
+        y = pad + ph * i / 4
+        out.append(f'<line x1="{pad}" y1="{y:.1f}" x2="{width - pad}" y2="{y:.1f}" class="gridline"/>')
+        out.append(
+            f'<text x="{pad - 7}" y="{y + 3.5:.1f}" class="tick tick-y">'
+            f"{y_hi - (y_hi - y_lo) * i / 4:.3f}</text>"
+        )
+
+    # Break-even. Below this line the agent destroyed the capital it started with.
+    if y_lo < baseline < y_hi:
+        out.append(
+            f'<line x1="{pad}" y1="{py(baseline):.1f}" x2="{width - pad}" '
+            f'y2="{py(baseline):.1f}" class="breakeven"/>'
+            f'<text x="{width - pad}" y="{py(baseline) - 4:.1f}" class="tick" '
+            f'text-anchor="end">break-even</text>'
+        )
+
+    if ref:
+        coords = " ".join(f"{px(x):.1f},{py(y):.1f}" for x, y in ref)
+        out.append(f'<polyline points="{coords}" class="reference"/>')
+
+    coords = " ".join(f"{px(x):.1f},{py(y):.1f}" for x, y in clean)
+    area = (
+        f"{px(clean[0][0]):.1f},{py(baseline if y_lo < baseline < y_hi else y_lo):.1f} "
+        f"{coords} "
+        f"{px(clean[-1][0]):.1f},{py(baseline if y_lo < baseline < y_hi else y_lo):.1f}"
+    )
+    out.append(f'<polygon points="{area}" fill="var(--signal)" opacity=".10"/>')
+    out.append(
+        f'<polyline points="{coords}" fill="none" stroke="var(--signal)" '
+        f'stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>'
+    )
+
+    if exit_day is not None and x_lo <= exit_day <= x_hi:
+        out.append(
+            f'<line x1="{px(exit_day):.1f}" y1="{pad - 8}" x2="{px(exit_day):.1f}" '
+            f'y2="{pad + ph:.1f}" class="exit-line"/>'
+            f'<text x="{px(exit_day) - 5:.1f}" y="{pad - 2}" class="exit-label" '
+            f'text-anchor="end">liquidated d{exit_day}</text>'
+        )
+
+    at = dict(clean)
+    for day, holding in entries:
+        if not (x_lo <= day <= x_hi):
+            continue
+        x, y = px(day), py(at.get(day, clean[-1][1]))
+        colour = _holding_colour(holding)
+        label = HOLDING_LABEL[int(holding)] if 0 <= int(holding) < 4 else "?"
+        out.append(
+            f'<line x1="{x:.1f}" y1="{pad - 8}" x2="{x:.1f}" y2="{pad + ph:.1f}" '
+            f'class="entry-line" stroke="var({colour})"/>'
+            f'<circle cx="{x:.1f}" cy="{y:.1f}" r="4.4" fill="var(--panel)" '
+            f'stroke="var({colour})" stroke-width="2.4"/>'
+            f'<text x="{x:.1f}" y="{pad - 11}" class="entry-label" '
+            f'fill="var({colour})" text-anchor="middle">d{day}&#8594;{label}</text>'
+        )
+
+    # Holding strip: what was owned, every day, with no gaps to interpret.
+    top = pad + ph + 8
+    for first, last, holding in bands:
+        x0, x1 = px(max(first, x_lo)), px(min(last, x_hi))
+        w = max(x1 - x0, 1.2)
+        out.append(
+            f'<rect x="{x0:.1f}" y="{top:.1f}" width="{w:.1f}" height="{strip}" '
+            f'fill="var({_holding_colour(holding)})" opacity=".82"/>'
+        )
+        if w > 22:
+            out.append(
+                f'<text x="{x0 + w / 2:.1f}" y="{top + strip - 3.5:.1f}" '
+                f'class="strip-label" text-anchor="middle">'
+                f"{HOLDING_LABEL[int(holding)]}</text>"
+            )
+
+    stride = max(1, int((x_hi - x_lo) // 10) or 1)
+    for d in range(int(x_lo), int(x_hi) + 1, stride):
+        out.append(
+            f'<text x="{px(d):.1f}" y="{top + strip + 13:.1f}" class="tick" '
+            f'text-anchor="middle">{d}</text>'
+        )
+    if x_label:
+        out.append(
+            f'<text x="{width / 2}" y="{height - 3}" class="axis-label">'
+            f"{html.escape(x_label)}</text>"
+        )
+    out.append("</svg>")
+
+    keys = ['<span class="key"><i style="background:var(--signal)"></i>agent wealth</span>']
+    if ref:
+        keys.append('<span class="key"><i class="dash"></i>optimal policy, same world</span>')
+    return f'<div class="chart-wrap">{"".join(out)}</div><div class="legend">{"".join(keys)}</div>'
+
+
+def holding_bands(rows):
+    """Collapse a per-day holding sequence into contiguous (first, last, holding)."""
+    bands, entries = [], []
+    start = previous = None
+    for day, holding in rows:
+        if previous is None:
+            start, previous = day, holding
+            entries.append((day, holding))
+            continue
+        if holding != previous:
+            bands.append((start, day, previous))
+            entries.append((day, holding))
+            start, previous = day, holding
+    if previous is not None:
+        bands.append((start, rows[-1][0], previous))
+    return bands, entries
