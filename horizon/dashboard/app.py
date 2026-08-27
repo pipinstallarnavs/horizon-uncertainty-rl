@@ -12,6 +12,12 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 
 from horizon.dashboard.charts import bar_chart, empty_chart, hazard_ribbon, line_chart
+from horizon.dashboard.decisions import (
+    costly_rows,
+    episode_picker,
+    episode_trace_table,
+    trade_rows,
+)
 from horizon.dashboard.render import page
 from horizon.env.distributions import DISTRIBUTIONS
 from horizon.store.repository import Repository
@@ -90,6 +96,11 @@ def live():
     return PlainTextResponse(_body(), media_type="text/html")
 
 
+@app.get("/decisions", response_class=PlainTextResponse)
+def decisions(episode: int = None):
+    return PlainTextResponse(_decision_log(episode), media_type="text/html")
+
+
 @app.get("/", response_class=HTMLResponse)
 def index():
     cell, _, horizon = _run_meta()
@@ -104,7 +115,9 @@ def index():
         + (f' &middot; fleet at day {centre}' if centre else "")
         + "</span>"
     )
-    return HTMLResponse(page(RUN_ID, cell, hazard_ribbon(hazard, centre), note, _body()))
+    return HTMLResponse(
+        page(RUN_ID, cell, hazard_ribbon(hazard, centre), note, _body(), _decision_log())
+    )
 
 
 # --------------------------------------------------------------------------- #
@@ -213,6 +226,47 @@ def _body() -> str:
       </section>
     </div>
     """
+
+
+def _decision_log(episode: int = None) -> str:
+    """Every moment the agent changed position, with what it believed at the time."""
+    r = repo()
+    episodes = _safe(lambda: r.completed_episodes(RUN_ID), [])
+
+    if episode is not None:
+        trace = _safe(lambda: r.episode_trace(RUN_ID, episode), [])
+        return f"""
+        <section class="panel">
+          <h2>Episode {episode}, day by day</h2>
+          <p class="why">Filled markers are days the position changed. "Said remaining"
+          is the agent's own estimate of days left; "true" is the actual conditional
+          mean it should have held.</p>
+          {episode_picker(episodes, episode)}
+          {episode_trace_table(trace, episode)}
+          <p style="margin-top:14px"><a class="btn" data-back href="/decisions">Back to all trades</a></p>
+        </section>"""
+
+    trades = _safe(lambda: r.recent_trades(RUN_ID), [])
+    costly = _safe(lambda: r.costliest_decisions(RUN_ID), [])
+
+    return f"""
+    <section class="panel">
+      <h2>Every position change</h2>
+      <p class="why">One row per day the agent moved, newest episodes first, with the
+      model's own words underneath. "Said remaining" is its stated estimate of days
+      left, next to how far that sat from the truth. "Cost" is the wealth given up
+      against the optimal action on that exact day.</p>
+      {episode_picker(episodes)}
+      {trade_rows(trades)}
+    </section>
+
+    <section class="panel">
+      <h2>Costliest decisions</h2>
+      <p class="why">The days that gave up the most wealth. A large belief gap here
+      means the agent reasoned from a wrong premise; a small one means it knew the
+      time and did not use it.</p>
+      {costly_rows(costly)}
+    </section>"""
 
 
 def _reading(label, value, foot, accent):

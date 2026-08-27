@@ -32,16 +32,9 @@ STYLE = """
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --paper:  #12181d;
-    --panel:  #19212a;
-    --ink:    #e6eae4;
-    --muted:  #8c9a99;
-    --rule:   #2b3640;
-    --hazard: #e0705a;
-    --thought:#d3a75c;
-    --signal: #6cc0a8;
-    --cool:   #7ba3cf;
-    --grid:   rgba(230,234,228,.07);
+    --paper:#12181d; --panel:#19212a; --ink:#e6eae4; --muted:#8c9a99;
+    --rule:#2b3640; --hazard:#e0705a; --thought:#d3a75c; --signal:#6cc0a8;
+    --cool:#7ba3cf; --grid:rgba(230,234,228,.07);
   }
 }
 :root[data-theme="dark"] {
@@ -53,12 +46,9 @@ STYLE = """
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; }
 body {
-  margin: 0;
-  background: var(--paper);
-  color: var(--ink);
+  margin: 0; background: var(--paper); color: var(--ink);
   font-family: "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
-  font-size: 15px;
-  line-height: 1.5;
+  font-size: 15px; line-height: 1.5;
   /* Faint ledger ruling: the state table this whole study is solved over. */
   background-image:
     linear-gradient(var(--grid) 1px, transparent 1px),
@@ -78,13 +68,10 @@ body {
 /* ---- masthead ------------------------------------------------------------ */
 header {
   display: flex; align-items: flex-end; justify-content: space-between;
-  gap: 18px; flex-wrap: wrap; padding: 18px 26px 16px;
-  border-bottom: 2px solid var(--ink);
+  gap: 18px; flex-wrap: wrap; padding: 18px 26px 16px; border-bottom: 2px solid var(--ink);
 }
-h1 {
-  margin: 0; font-size: clamp(21px, 3.4vw, 30px); font-weight: 700;
-  letter-spacing: -.026em; line-height: 1.04;
-}
+h1 { margin: 0; font-size: clamp(21px, 3.4vw, 30px); font-weight: 700;
+     letter-spacing: -.026em; line-height: 1.04; }
 h1 .sub { display: block; font-size: .46em; font-weight: 500; letter-spacing: .16em;
           text-transform: uppercase; color: var(--muted); margin-bottom: 5px; }
 .meta { display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
@@ -99,6 +86,17 @@ h1 .sub { display: block; font-size: .46em; font-weight: 500; letter-spacing: .1
 
 main { padding: 22px 26px 72px; max-width: 1240px; margin: 0 auto; }
 
+/* ---- tabs ---------------------------------------------------------------- */
+.tabs { display: flex; border-bottom: 1px solid var(--rule); margin-bottom: 20px; }
+.tab {
+  appearance: none; background: none; border: 0; border-bottom: 2px solid transparent;
+  padding: 11px 18px; font: inherit; font-size: 12px; font-weight: 500;
+  letter-spacing: .12em; text-transform: uppercase; color: var(--muted); cursor: pointer;
+}
+.tab:hover { color: var(--ink); }
+.tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--hazard); }
+.tab:focus-visible { outline: 2px solid var(--signal); outline-offset: -2px; }
+
 /* ---- readings ------------------------------------------------------------ */
 .readings {
   display: grid; gap: 1px; background: var(--rule);
@@ -106,8 +104,7 @@ main { padding: 22px 26px 72px; max-width: 1240px; margin: 0 auto; }
   grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
 }
 .reading { background: var(--panel); padding: 14px 16px 15px; }
-.reading .label { font-size: 10px; letter-spacing: .13em; text-transform: uppercase;
-                  color: var(--muted); }
+.reading .label { font-size: 10px; letter-spacing: .13em; text-transform: uppercase; color: var(--muted); }
 .reading .value { font-size: 31px; font-weight: 700; letter-spacing: -.03em;
                   line-height: 1.05; margin: 7px 0 3px; }
 .reading .foot { font-size: 11.5px; color: var(--muted); }
@@ -118,8 +115,8 @@ main { padding: 22px 26px 72px; max-width: 1240px; margin: 0 auto; }
 /* ---- progress rail ------------------------------------------------------- */
 .rail { border: 1px solid var(--rule); background: var(--panel); padding: 13px 16px 15px;
         margin-bottom: 22px; }
-.rail-head { display: flex; justify-content: space-between; align-items: baseline;
-             gap: 12px; font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+.rail-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+             font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
              color: var(--muted); margin-bottom: 9px; }
 .rail-track { display: flex; height: 12px; background: var(--paper);
               border: 1px solid var(--rule); overflow: hidden; }
@@ -133,19 +130,17 @@ main { padding: 22px 26px 72px; max-width: 1240px; margin: 0 auto; }
 
 /* ---- panels -------------------------------------------------------------- */
 .grid2 { display: grid; gap: 18px; grid-template-columns: repeat(auto-fit, minmax(390px, 1fr)); }
-.panel { border: 1px solid var(--rule); background: var(--panel); padding: 16px 18px 18px;
-         margin-bottom: 18px; }
-.panel h2 { margin: 0; font-size: 13px; font-weight: 700; letter-spacing: .1em;
-            text-transform: uppercase; }
+.panel { border: 1px solid var(--rule); background: var(--panel);
+         padding: 16px 18px 18px; margin-bottom: 18px; }
+.panel h2 { margin: 0; font-size: 13px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
 .panel .why { margin: 5px 0 15px; font-size: 12.5px; color: var(--muted);
-              max-width: 62ch; line-height: 1.5; }
+              max-width: 66ch; line-height: 1.5; }
 
 /* ---- charts -------------------------------------------------------------- */
 .chart-wrap { overflow-x: auto; }
 .chart { width: 100%; height: auto; min-width: 340px; display: block; }
 .gridline { stroke: var(--rule); stroke-width: 1; }
-.tick { fill: var(--muted); font-size: 10px;
-        font-family: "JetBrains Mono", ui-monospace, monospace; }
+.tick { fill: var(--muted); font-size: 10px; font-family: "JetBrains Mono", ui-monospace, monospace; }
 .tick-y { text-anchor: end; }
 .axis-label { fill: var(--muted); font-size: 10px; text-anchor: middle;
               letter-spacing: .1em; text-transform: uppercase; }
@@ -160,8 +155,7 @@ main { padding: 22px 26px 72px; max-width: 1240px; margin: 0 auto; }
 
 /* ---- tables -------------------------------------------------------------- */
 table.data { border-collapse: collapse; width: 100%; font-size: 13px; }
-table.data th, table.data td { text-align: left; padding: 7px 10px;
-                               border-bottom: 1px solid var(--rule); }
+table.data th, table.data td { text-align: left; padding: 7px 10px; border-bottom: 1px solid var(--rule); }
 table.data th { color: var(--muted); font-weight: 500; font-size: 10px;
                 letter-spacing: .12em; text-transform: uppercase; }
 table.data td.n { font-family: "JetBrains Mono", ui-monospace, monospace;
@@ -169,15 +163,48 @@ table.data td.n { font-family: "JetBrains Mono", ui-monospace, monospace;
 tr.flag td { color: var(--hazard); font-weight: 700; }
 tr.good td:first-child { color: var(--signal); }
 
+/* ---- decision log -------------------------------------------------------- */
+.log-wrap { overflow-x: auto; border-top: 1px solid var(--rule); }
+.log-wrap.tall { max-height: 620px; overflow-y: auto; }
+table.log { font-size: 12.5px; }
+table.log th { position: sticky; top: 0; background: var(--panel); z-index: 1; }
+table.log td { vertical-align: baseline; }
+table.log td.day { font-weight: 700; white-space: nowrap; }
+table.log td.move { min-width: 190px; }
+table.log .dim { color: var(--muted); font-weight: 400; margin-left: 6px; font-size: .92em; }
+table.log td.cost { color: var(--hazard); font-weight: 500; }
+table.log td.cost.bad { font-weight: 700; }
+table.log tr.switch td { background: rgba(46,107,94,.09); }
+table.log tr.said td { border-bottom: 1px solid var(--rule); padding-top: 0; }
+table.log tr.said q { color: var(--muted); font-size: 11.5px; font-style: normal;
+                      font-family: "JetBrains Mono", ui-monospace, monospace; }
+.gap { margin-left: 7px; font-size: .88em; }
+.gap.ok { color: var(--signal); }
+.gap.warn { color: var(--thought); }
+.gap.bad { color: var(--hazard); }
+.tag { font-size: 10px; letter-spacing: .08em; text-transform: uppercase;
+       padding: 2px 7px; border: 1px solid currentColor; white-space: nowrap; }
+.tag-ok { color: var(--signal); }
+.tag-bad { color: var(--hazard); }
+
+.chips { display: flex; gap: 7px; flex-wrap: wrap; margin-bottom: 14px; }
+.chip { display: inline-flex; flex-direction: column; gap: 1px; padding: 7px 11px;
+        border: 1px solid var(--rule); text-decoration: none; color: var(--ink);
+        font-size: 11.5px; background: var(--paper); }
+.chip:hover { border-color: var(--ink); }
+.chip.active { border-color: var(--hazard); border-width: 2px; }
+.chip .dim { color: var(--muted); font-size: 10.5px; margin: 0; }
+.chip:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
 /* ---- action -------------------------------------------------------------- */
-.btn { display: inline-block; padding: 10px 18px; background: var(--ink);
-       color: var(--paper); text-decoration: none; font-size: 12px; font-weight: 500;
-       letter-spacing: .1em; text-transform: uppercase; border: 1px solid var(--ink); }
+.btn { display: inline-block; padding: 10px 18px; background: var(--ink); color: var(--paper);
+       text-decoration: none; font-size: 12px; font-weight: 500; letter-spacing: .1em;
+       text-transform: uppercase; border: 1px solid var(--ink); }
 .btn:hover { background: transparent; color: var(--ink); }
 .btn:focus-visible { outline: 2px solid var(--signal); outline-offset: 3px; }
 
-footer { max-width: 1240px; margin: 0 auto; padding: 0 26px 40px;
-         font-size: 11.5px; color: var(--muted); line-height: 1.65; max-width: 78ch; }
+footer { margin: 0 auto; padding: 0 26px 40px; font-size: 11.5px;
+         color: var(--muted); line-height: 1.65; max-width: 78ch; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
@@ -189,38 +216,66 @@ footer { max-width: 1240px; margin: 0 auto; padding: 0 26px 40px;
 """
 
 # Poll a fragment and swap it in, so the page never blinks and scroll position
-# survives. Meta-refresh reloaded the whole document every ten seconds, which
+# survives. A meta-refresh reloaded the whole document every ten seconds, which
 # made reading a chart mid-update impossible.
 SCRIPT = """
 (function () {
   var busy = false;
+  var current = 'overview';
+  var sources = { overview: '/live', decisions: '/decisions' };
+
+  function show(name) {
+    current = name;
+    document.querySelectorAll('.tab').forEach(function (b) {
+      b.setAttribute('aria-selected', String(b.dataset.tab === name));
+    });
+    document.querySelectorAll('.tabpanel').forEach(function (p) {
+      p.hidden = p.dataset.tab !== name;
+    });
+    tick();
+  }
+
   async function tick() {
     if (busy || document.hidden) return;
     busy = true;
     try {
-      var res = await fetch('/live', { cache: 'no-store' });
+      var res = await fetch(sources[current], { cache: 'no-store' });
       if (res.ok) {
-        var html = await res.text();
-        var slot = document.getElementById('live');
-        if (slot) slot.innerHTML = html;
+        var slot = document.querySelector('.tabpanel[data-tab="' + current + '"]');
+        if (slot) slot.innerHTML = await res.text();
         var stamp = document.getElementById('stamp');
         if (stamp) stamp.textContent = new Date().toLocaleTimeString();
       }
     } catch (e) {
-      /* keep the last good render on the screen rather than blanking it */
+      /* keep the last good render on screen rather than blanking it */
     } finally {
       busy = false;
     }
   }
-  setInterval(tick, 5000);
-  document.addEventListener('visibilitychange', function () {
-    if (!document.hidden) tick();
+
+  document.addEventListener('click', function (e) {
+    var tab = e.target.closest('.tab');
+    if (tab) { e.preventDefault(); show(tab.dataset.tab); return; }
+    var link = e.target.closest('a.chip, a.btn[data-back]');
+    if (link && current === 'decisions') {
+      e.preventDefault();
+      fetch(link.getAttribute('href'), { cache: 'no-store' })
+        .then(function (r) { return r.text(); })
+        .then(function (html) {
+          var slot = document.querySelector('.tabpanel[data-tab="decisions"]');
+          if (slot) { slot.innerHTML = html; slot.scrollIntoView({ block: 'start' }); }
+        });
+    }
   });
+
+  setInterval(tick, 5000);
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) tick(); });
 })();
 """
 
 
-def page(run_id: str, cell: dict, ribbon: str, ribbon_note: str, body: str) -> str:
+def page(run_id: str, cell: dict, ribbon: str, ribbon_note: str,
+         body: str, decision_log: str) -> str:
     exit_name = cell.get("exit", "uniform")
     info = cell.get("info", "K")
     condition = {"K": "known distribution", "U": "unknown distribution",
@@ -247,7 +302,14 @@ def page(run_id: str, cell: dict, ribbon: str, ribbon_note: str, body: str) -> s
     <span>updated <b id="stamp" class="num">&mdash;</b></span>
   </div>
 </header>
-<main><div id="live">{body}</div></main>
+<main>
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" data-tab="overview" aria-selected="true">Overview</button>
+    <button class="tab" role="tab" data-tab="decisions" aria-selected="false">Decision log</button>
+  </div>
+  <div class="tabpanel" data-tab="overview" role="tabpanel">{body}</div>
+  <div class="tabpanel" data-tab="decisions" role="tabpanel" hidden>{decision_log}</div>
+</main>
 <footer>
   An agent trades in a market and is force-liquidated at a random, unknown day.
   Regret is measured against an exactly-solved optimal policy, verified by

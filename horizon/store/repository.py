@@ -285,6 +285,69 @@ class Repository:
             "regret": float(regret) if regret is not None else None,
         }
 
+    # ---- decision log -----------------------------------------------------
+
+    TRACE_COLUMNS = """episode, day, holding, age, wealth, parsed_belief, parsed_action,
+                       truth_m_t, truth_h_t, truth_pi_star, truth_q_loss,
+                       thought_tokens, error_class, raw_completion"""
+
+    def recent_trades(self, run_id: str, limit: int = 60):
+        """Every day the agent actually changed position, newest first.
+
+        A switch is where the holding differs from the previous day, so it is
+        found with a window function rather than by trusting the episode summary:
+        this way the model's own words for that day come back with it.
+        """
+        with self.cursor() as cur:
+            cur.execute(
+                f"""WITH trace AS (
+                        SELECT {self.TRACE_COLUMNS},
+                               lag(holding) OVER (PARTITION BY episode ORDER BY day) AS came_from
+                        FROM agent_days WHERE run_id = %s)
+                    SELECT * FROM trace
+                    WHERE came_from IS NULL OR came_from <> holding
+                    ORDER BY episode DESC, day ASC
+                    LIMIT %s""",
+                (run_id, limit),
+            )
+            return cur.fetchall()
+
+    def episode_trace(self, run_id: str, episode: int):
+        """Every day of one episode, in order."""
+        with self.cursor() as cur:
+            cur.execute(
+                f"""WITH trace AS (
+                        SELECT {self.TRACE_COLUMNS},
+                               lag(holding) OVER (PARTITION BY episode ORDER BY day) AS came_from
+                        FROM agent_days WHERE run_id = %s AND episode = %s)
+                    SELECT * FROM trace ORDER BY day""",
+                (run_id, episode),
+            )
+            return cur.fetchall()
+
+    def completed_episodes(self, run_id: str, limit: int = 40):
+        """Finished episodes with enough summary to pick one worth opening."""
+        with self.cursor() as cur:
+            cur.execute(
+                """SELECT episode, true_exit_day, terminal_wealth, regret,
+                          coalesce(array_length(switch_days, 1), 0)
+                   FROM episodes WHERE run_id = %s
+                   ORDER BY episode DESC LIMIT %s""",
+                (run_id, limit),
+            )
+            return cur.fetchall()
+
+    def costliest_decisions(self, run_id: str, limit: int = 12):
+        """Days where departing from the optimal action cost the most wealth."""
+        with self.cursor() as cur:
+            cur.execute(
+                f"""SELECT {self.TRACE_COLUMNS} FROM agent_days
+                    WHERE run_id = %s AND truth_q_loss > 0
+                    ORDER BY truth_q_loss DESC LIMIT %s""",
+                (run_id, limit),
+            )
+            return cur.fetchall()
+
     def episode_records(self, run_id: str):
         with self.cursor() as cur:
             cur.execute(

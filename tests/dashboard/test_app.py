@@ -40,7 +40,7 @@ def test_live_fragment_is_served_separately_from_the_shell():
     shell = client.get("/").text
     fragment = client.get("/live")
     assert fragment.status_code == 200
-    assert 'id="live"' in shell
+    assert 'class="tabpanel" data-tab="overview"' in shell
     assert "<html" not in fragment.text
     assert len(fragment.text) < len(shell)
 
