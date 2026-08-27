@@ -94,6 +94,19 @@ h1 .sub { display: block; font-size: .46em; font-weight: 500; letter-spacing: .1
 
 main { padding: 22px 26px 72px; max-width: 1240px; margin: 0 auto; }
 
+/* ---- cell selector ------------------------------------------------------- */
+.cells { display: flex; gap: 8px; flex-wrap: wrap; padding: 12px 26px 0; }
+.cell-chip {
+  display: inline-flex; flex-direction: column; gap: 1px; padding: 6px 11px 7px;
+  border: 1px solid var(--rule); background: var(--panel); text-decoration: none;
+  color: var(--ink); font-size: 11.5px; line-height: 1.35;
+}
+.cell-chip:hover { border-color: var(--ink); }
+.cell-chip.active { border-color: var(--hazard); border-width: 2px; padding: 5px 10px 6px; }
+.cell-chip .dim { color: var(--muted); font-size: 10px; letter-spacing: .06em;
+                  text-transform: uppercase; }
+.cell-chip:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+
 /* ---- tabs ---------------------------------------------------------------- */
 .tabs { display: flex; border-bottom: 1px solid var(--rule); margin-bottom: 20px; }
 .tab {
@@ -270,7 +283,9 @@ SCRIPT = """
   var current = 'overview';
   // The decisions tab is stateful: opening one episode has to survive the next
   // poll, so the tab remembers its own URL instead of always refetching /decisions.
-  var url = { overview: '/live', decisions: '/decisions' };
+  var main = document.querySelector('main');
+  var q = main && main.dataset.run ? '?run=' + encodeURIComponent(main.dataset.run) : '';
+  var url = { overview: '/live' + q, decisions: '/decisions' + q };
 
   function openKeys(slot) {
     var keys = {};
@@ -348,8 +363,30 @@ SCRIPT = """
 """
 
 
+def _cell_chips(runs, active: str) -> str:
+    """One chip per experiment cell in the database.
+
+    The study is a grid, not a single run, and a reader who cannot move between
+    cells cannot compare them -- which is the entire point of the grid.
+    """
+    if not runs or len(runs) < 2:
+        return ""
+    out = []
+    for r in runs:
+        c = r.get("cell") or {}
+        done, total = r.get("done", 0), r.get("total", 0)
+        pct = f"{100.0 * done / total:.0f}%" if total else "queued"
+        out.append(
+            f'<a class="cell-chip{" active" if r["run_id"] == active else ""}" '
+            f'href="/?run={r["run_id"]}"><b>{r["run_id"]}</b>'
+            f'<span class="dim">{c.get("exit", "?")} &middot; {c.get("info", "?")} '
+            f'&middot; {pct}</span></a>'
+        )
+    return f'<div class="cells">{"".join(out)}</div>'
+
+
 def page(run_id: str, cell: dict, ribbon: str, ribbon_note: str,
-         body: str, decision_log: str) -> str:
+         body: str, decision_log: str, runs=()) -> str:
     exit_name = cell.get("exit", "uniform")
     info = cell.get("info", "K")
     condition = {"K": "known distribution", "U": "unknown distribution",
@@ -376,7 +413,8 @@ def page(run_id: str, cell: dict, ribbon: str, ribbon_note: str,
     <span>updated <b id="stamp" class="num">&mdash;</b></span>
   </div>
 </header>
-<main>
+{_cell_chips(runs, run_id)}
+<main data-run="{run_id}">
   <div class="tabs" role="tablist">
     <button class="tab" role="tab" data-tab="overview" aria-selected="true">Overview</button>
     <button class="tab" role="tab" data-tab="decisions" aria-selected="false">Decision log</button>

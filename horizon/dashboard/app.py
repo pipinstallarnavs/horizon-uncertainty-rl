@@ -33,7 +33,9 @@ from horizon.store.repository import Repository
 
 app = FastAPI(title="Random-Horizon Trading")
 
-RUN_ID = os.environ.get("HORIZON_RUN_ID", "default")
+DEFAULT_RUN = os.environ.get("HORIZON_RUN_ID", "default")
+# Kept for the tests and for anything that only ever wants the container's cell.
+RUN_ID = DEFAULT_RUN
 _repo = None
 
 
@@ -44,6 +46,18 @@ def repo() -> Repository:
     return _repo
 
 
+def _runs():
+    return _safe(lambda: repo().list_runs(), [])
+
+
+def _resolve(run):
+    """Which cell is being asked for. Unknown names fall back to the default."""
+    if not run:
+        return DEFAULT_RUN
+    known = {r["run_id"] for r in _runs()}
+    return run if run in known else DEFAULT_RUN
+
+
 def _safe(fn, default):
     try:
         return fn()
@@ -51,11 +65,13 @@ def _safe(fn, default):
         return default
 
 
-def _run_meta():
+def _run_meta(run_id=None):
     """Cell, V* and horizon for the active run; sensible defaults if absent."""
+    run_id = run_id or DEFAULT_RUN
+
     def load():
         with repo().cursor() as cur:
-            cur.execute("SELECT cell, v_star, horizon FROM runs WHERE run_id = %s", (RUN_ID,))
+            cur.execute("SELECT cell, v_star, horizon FROM runs WHERE run_id = %s", (run_id,))
             row = cur.fetchone()
         if not row:
             raise LookupError
@@ -96,55 +112,56 @@ def _reference(exit_name, horizon, last_day=None):
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "run_id": RUN_ID}
+    return {"status": "ok", "run_id": DEFAULT_RUN, "runs": [r["run_id"] for r in _runs()]}
 
 
 @app.get("/api/summary")
-def api_summary():
-    r = repo()
+def api_summary(run: str = None):
+    r, run_id = repo(), _resolve(run)
     return JSONResponse(
         {
-            "run_id": RUN_ID,
-            "progress": _safe(lambda: r.progress(RUN_ID), {}),
-            "tokens": _safe(lambda: r.token_totals(RUN_ID), {}),
-            "errors": _safe(lambda: r.error_counts(RUN_ID), {}),
+            "run_id": run_id,
+            "progress": _safe(lambda: r.progress(run_id), {}),
+            "tokens": _safe(lambda: r.token_totals(run_id), {}),
+            "errors": _safe(lambda: r.error_counts(run_id), {}),
         }
     )
 
 
 @app.get("/export")
-def export():
+def export(run: str = None):
     """Download the report bundle: HTML report, CSVs and summary JSON."""
     from horizon.eval.export import export_bundle, records_from_rows
 
-    r = repo()
-    rows = _safe(lambda: r.episode_records(RUN_ID), [])
+    r, run_id = repo(), _resolve(run)
+    rows = _safe(lambda: r.episode_records(run_id), [])
     if not rows:
         return JSONResponse({"error": "no completed episodes yet"}, status_code=409)
 
-    cell, v_star, horizon = _run_meta()
+    cell, v_star, horizon = _run_meta(run_id)
     dist = DISTRIBUTIONS[cell.get("exit", "uniform")](horizon)
-    path = os.path.join(tempfile.gettempdir(), f"{RUN_ID}-bundle.zip")
-    export_bundle(path, RUN_ID, cell, records_from_rows(rows), dist, v_star)
-    return FileResponse(path, filename=f"{RUN_ID}-bundle.zip", media_type="application/zip")
+    path = os.path.join(tempfile.gettempdir(), f"{run_id}-bundle.zip")
+    export_bundle(path, run_id, cell, records_from_rows(rows), dist, v_star)
+    return FileResponse(path, filename=f"{run_id}-bundle.zip", media_type="application/zip")
 
 
 @app.get("/live", response_class=PlainTextResponse)
-def live():
-    return PlainTextResponse(_body(), media_type="text/html")
+def live(run: str = None):
+    return PlainTextResponse(_body(_resolve(run)), media_type="text/html")
 
 
 @app.get("/decisions", response_class=PlainTextResponse)
-def decisions(episode: int = None):
-    return PlainTextResponse(_decision_log(episode), media_type="text/html")
+def decisions(episode: int = None, run: str = None):
+    return PlainTextResponse(_decision_log(_resolve(run), episode), media_type="text/html")
 
 
 @app.get("/", response_class=HTMLResponse)
-def index():
-    cell, _, horizon = _run_meta()
+def index(run: str = None):
+    run_id = _resolve(run)
+    cell, _, horizon = _run_meta(run_id)
     dist = DISTRIBUTIONS.get(cell.get("exit", "uniform"), DISTRIBUTIONS["uniform"])(horizon)
     hazard = [dist.hazard(t) for t in range(1, horizon + 1)]
-    centre = _safe(lambda: repo().active_day(RUN_ID), None)
+    centre = _safe(lambda: repo().active_day(run_id), None)
 
     peak = max(range(len(hazard)), key=lambda i: hazard[i]) + 1
     note = (
@@ -154,25 +171,26 @@ def index():
         + "</span>"
     )
     return HTMLResponse(
-        page(RUN_ID, cell, hazard_ribbon(hazard, centre), note, _body(), _decision_log())
+        page(run_id, cell, hazard_ribbon(hazard, centre), note,
+             _body(run_id), _decision_log(run_id), _runs())
     )
 
 
 # --------------------------------------------------------------------------- #
 
 
-def _body() -> str:
+def _body(run_id: str) -> str:
     r = repo()
-    cell, v_star, horizon = _run_meta()
-    progress = _safe(lambda: r.progress(RUN_ID), {})
-    tokens = _safe(lambda: r.token_totals(RUN_ID), {})
-    errors = _safe(lambda: r.error_counts(RUN_ID), {})
-    series = _safe(lambda: r.token_timeseries(RUN_ID), [])
-    thoughts = _safe(lambda: r.thought_tokens_by_day(RUN_ID), [])
-    switches = _safe(lambda: r.switch_day_counts(RUN_ID, horizon), [])
-    beliefs = _safe(lambda: r.belief_error_by_day(RUN_ID), [])
-    outcome = _safe(lambda: r.outcome_summary(RUN_ID), {})
-    equity = _safe(lambda: r.wealth_by_day(RUN_ID), [])
+    cell, v_star, horizon = _run_meta(run_id)
+    progress = _safe(lambda: r.progress(run_id), {})
+    tokens = _safe(lambda: r.token_totals(run_id), {})
+    errors = _safe(lambda: r.error_counts(run_id), {})
+    series = _safe(lambda: r.token_timeseries(run_id), [])
+    thoughts = _safe(lambda: r.thought_tokens_by_day(run_id), [])
+    switches = _safe(lambda: r.switch_day_counts(run_id, horizon), [])
+    beliefs = _safe(lambda: r.belief_error_by_day(run_id), [])
+    outcome = _safe(lambda: r.outcome_summary(run_id), {})
+    equity = _safe(lambda: r.wealth_by_day(run_id), [])
 
     dist = DISTRIBUTIONS.get(cell.get("exit", "uniform"), DISTRIBUTIONS["uniform"])(horizon)
     truth = [(t, dist.mean_remaining(t)) for t in range(1, horizon + 1)]
@@ -271,22 +289,24 @@ def _body() -> str:
         <p class="why">A self-contained HTML report with every chart inlined, plus
         per-table CSVs and a summary JSON. Every reported number can be recomputed
         from the bundle alone, without the database.</p>
-        <p><a class="btn" href="/export">Download report bundle</a></p>
+        <p><a class="btn" href="/export?run={run_id}">Download report bundle</a></p>
       </section>
     </div>
     """
 
 
-def _decision_log(episode: int = None) -> str:
+def _decision_log(run_id: str, episode: int = None) -> str:
     """Every moment the agent changed position, with what it believed at the time."""
     r = repo()
-    episodes = _safe(lambda: r.completed_episodes(RUN_ID), [])
+    episodes = _safe(lambda: r.completed_episodes(run_id), [])
 
     if episode is not None:
-        cell, _, horizon = _run_meta()
-        trace = _safe(lambda: r.episode_trace(RUN_ID, episode), [])
+        cell, _, horizon = _run_meta(run_id)
+        trace = _safe(lambda: r.episode_trace(run_id, episode), [])
+        # The picker only lists recent episodes, so an older one has to fall back
+        # to its own last day -- which is the exit, since a rollout stops there.
         exits = {int(e): int(d) for e, d, *_ in episodes}
-        exit_day = exits.get(int(episode))
+        exit_day = exits.get(int(episode)) or (int(row(trace[-1])["day"]) if trace else None)
         return f"""
         <section class="panel">
           <h2>Episode {episode} &mdash; P&amp;L and entries</h2>
@@ -294,7 +314,7 @@ def _decision_log(episode: int = None) -> str:
           the agent changed position and the strip beneath showing what it held in
           between. The dashed line is the optimal policy in the identical market; the
           red line is the day the exit actually landed and the position was liquidated.</p>
-          {episode_picker(episodes, episode)}
+          {episode_picker(episodes, episode, run_id)}
           {_episode_equity(trace, exit_day, cell, horizon)}
         </section>
 
@@ -305,11 +325,11 @@ def _decision_log(episode: int = None) -> str:
           mean it should have held. Expand any row to read the model's full reasoning
           for that day, exactly as it was returned.</p>
           {episode_trace_table(trace, episode)}
-          <p style="margin-top:14px"><a class="btn" data-back href="/decisions">Back to all trades</a></p>
+          <p style="margin-top:14px"><a class="btn" data-back href="/decisions?run={run_id}">Back to all trades</a></p>
         </section>"""
 
-    trades = _safe(lambda: r.recent_trades(RUN_ID), [])
-    costly = _safe(lambda: r.costliest_decisions(RUN_ID), [])
+    trades = _safe(lambda: r.recent_trades(run_id), [])
+    costly = _safe(lambda: r.costliest_decisions(run_id), [])
 
     return f"""
     <section class="panel">
@@ -320,7 +340,7 @@ def _decision_log(episode: int = None) -> str:
       days left, next to how far that sat from the truth. "Cost" is the wealth given
       up against the optimal action on that exact day. Pick an episode above to see
       its P&amp;L curve with every entry marked.</p>
-      {episode_picker(episodes)}
+      {episode_picker(episodes, run=run_id)}
       {trade_rows(trades)}
     </section>
 

@@ -187,6 +187,27 @@ class Repository:
             )
             return {status: count for status, count in cur.fetchall()}
 
+    def list_runs(self) -> list:
+        """Every cell this database holds, newest first, with its progress.
+
+        The study is a grid of cells, not one run; the dashboard needs to name
+        them before it can show any of them.
+        """
+        with self.cursor() as cur:
+            cur.execute(
+                """SELECT r.run_id, r.cell, r.status,
+                          count(*) FILTER (WHERE w.status = 'done'),
+                          count(*)
+                   FROM runs r LEFT JOIN work_units w USING (run_id)
+                   GROUP BY r.run_id, r.cell, r.status, r.started_at
+                   ORDER BY r.started_at DESC"""
+            )
+            return [
+                {"run_id": rid, "cell": cell or {}, "status": status,
+                 "done": int(done or 0), "total": int(total or 0)}
+                for rid, cell, status, done, total in cur.fetchall()
+            ]
+
     def token_totals(self, run_id: str) -> dict:
         with self.cursor() as cur:
             cur.execute(

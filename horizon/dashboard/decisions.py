@@ -173,15 +173,16 @@ def costly_rows(rows) -> str:
     </div>"""
 
 
-def episode_picker(episodes, selected=None) -> str:
+def episode_picker(episodes, selected=None, run=None) -> str:
     if not episodes:
         return ""
+    tail = f"&amp;run={run}" if run else ""
     chips = []
     for episode, exit_day, wealth, regret, switches in episodes[:24]:
         active = " active" if selected is not None and int(episode) == int(selected) else ""
         sign = "over" if (regret or 0) < 0 else "under"
         chips.append(
-            f'<a class="chip{active}" href="/decisions?episode={episode}">'
+            f'<a class="chip{active}" href="/decisions?episode={episode}{tail}">'
             f'<b>ep {episode}</b><span class="dim">exit d{exit_day} &middot; '
             f'{switches} trades &middot; {sign} by {abs(float(regret or 0)):.3f}</span></a>'
         )
