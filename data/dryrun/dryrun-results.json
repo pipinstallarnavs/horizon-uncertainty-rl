@@ -1,0 +1,104 @@
+{
+  "uniform": {
+    "optimal": {
+      "regret": -0.004371605522484723,
+      "mean_wealth": 1.4666707085514694,
+      "clock_coefficient": -0.01329746576794973,
+      "trade_alignment": 0.9900990099009899,
+      "mean_switches": 1.895
+    },
+    "always-A": {
+      "regret": 0.4374240080757392,
+      "mean_wealth": 1.0248750949532464,
+      "clock_coefficient": 0.0,
+      "trade_alignment": 0.9900990099009899,
+      "mean_switches": 1.0
+    },
+    "always-B": {
+      "regret": 0.351891358371323,
+      "mean_wealth": 1.1104077446576621,
+      "clock_coefficient": 0.0,
+      "trade_alignment": 0.9900990099009899,
+      "mean_switches": 1.0
+    },
+    "always-C": {
+      "regret": 0.07255414073870226,
+      "mean_wealth": 1.3897449622902838,
+      "clock_coefficient": 0.0,
+      "trade_alignment": 0.9900990099009899,
+      "mean_switches": 1.0
+    },
+    "always-CASH": {
+      "regret": 0.46229910302898536,
+      "mean_wealth": 1.0,
+      "clock_coefficient": 0.0,
+      "trade_alignment": NaN,
+      "mean_switches": 0.0
+    },
+    "myopic-greedy": {
+      "regret": 0.1808294437889877,
+      "mean_wealth": 1.2814696592399972,
+      "clock_coefficient": -0.01329746576794973,
+      "trade_alignment": 0.9900990099009899,
+      "mean_switches": 1.895
+    },
+    "random": {
+      "regret": 0.44925916009487676,
+      "mean_wealth": 1.0130399429341124,
+      "clock_coefficient": -0.011097341465826891,
+      "trade_alignment": 0.9900990099009899,
+      "mean_switches": 4.89
+    }
+  },
+  "bimodal": {
+    "optimal": {
+      "regret": -0.0034059041749414654,
+      "mean_wealth": 1.616334233493026,
+      "clock_coefficient": -0.010384348173243699,
+      "trade_alignment": 0.7339449541284431,
+      "mean_switches": 1.505
+    },
+    "always-A": {
+      "regret": 0.6185547634325941,
+      "mean_wealth": 0.99437356588549,
+      "clock_coefficient": 0.0,
+      "trade_alignment": 0.7339449541284421,
+      "mean_switches": 1.0
+    },
+    "always-B": {
+      "regret": 0.4980438023589788,
+      "mean_wealth": 1.1148845269591057,
+      "clock_coefficient": 0.0,
+      "trade_alignment": 0.7339449541284421,
+      "mean_switches": 1.0
+    },
+    "always-C": {
+      "regret": 0.08670440918293165,
+      "mean_wealth": 1.5262239201351522,
+      "clock_coefficient": 0.0,
+      "trade_alignment": 0.7339449541284421,
+      "mean_switches": 1.0
+    },
+    "always-CASH": {
+      "regret": 0.6129283293180854,
+      "mean_wealth": 1.0,
+      "clock_coefficient": 0.0,
+      "trade_alignment": NaN,
+      "mean_switches": 0.0
+    },
+    "myopic-greedy": {
+      "regret": 0.3480367192075562,
+      "mean_wealth": 1.264891610110529,
+      "clock_coefficient": -0.010384348173243699,
+      "trade_alignment": 0.7339449541284431,
+      "mean_switches": 1.505
+    },
+    "random": {
+      "regret": 0.5994179253657961,
+      "mean_wealth": 1.0135104039522935,
+      "clock_coefficient": -0.009612887082068358,
+      "trade_alignment": 6.715596330275229,
+      "mean_switches": 5.0
+    }
+  }
+}

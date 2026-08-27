@@ -137,16 +137,29 @@ def test_the_default_market_is_not_degenerate():
     assert any(_action_change_fraction(sol, t) > 0.0 for t in range(2, 101))
 
 
-def test_uniform_and_bimodal_switch_into_different_assets():
-    # The headline behavioural signature: both hold the Sprinter through its
-    # boost window, then uniform moves to the steady compounder while bimodal,
-    # having learned it has 80 safe days, moves to the late bloomer.
+def test_the_memoryless_control_holds_something_different():
+    # Under uniform and bimodal exit there is time for the late bloomer to pay
+    # off, so the optimum rides the Sprinter and then switches into C. Under the
+    # geometric control the expected horizon is far shorter, so the steady
+    # compounder wins instead. The exit distribution changes what is held, which
+    # is the whole premise of the study.
     m = default_market()
     uniform_path = optimal_holdings(solve(m, uniform_exit(100)), m, 100)
     bimodal_path = optimal_holdings(solve(m, bimodal_exit()), m, 100)
-    assert uniform_path[:10] == bimodal_path[:10]
-    assert uniform_path[-1] == m.index("B")
+    geometric_path = optimal_holdings(solve(m, geometric_exit(100)), m, 100)
+
+    assert uniform_path[-1] == m.index("C")
     assert bimodal_path[-1] == m.index("C")
+    assert geometric_path[-1] == m.index("B")
+
+
+def test_every_condition_rides_the_sprinter_through_its_boost_window():
+    m = default_market()
+    boost = m.assets[0].breakpoint
+    for dist in (uniform_exit(100), bimodal_exit(), geometric_exit(100)):
+        path = optimal_holdings(solve(m, dist), m, 100)
+        assert path[: boost] == [0] * boost
+        assert path[boost] != 0
 
 
 def test_solution_shapes_are_consistent():

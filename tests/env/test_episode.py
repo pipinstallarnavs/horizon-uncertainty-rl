@@ -18,15 +18,15 @@ def test_holding_cash_forever_preserves_wealth():
     assert w[-1] == pytest.approx(1.0)
 
 
-def test_sprinter_compounds_then_stops_paying():
+def test_sprinter_compounds_then_decays():
     m = default_market()
     a = m.index("A")
     w = wealth_path(m, [a] * 20)
     # Day 1 pays the boost rate but also the switch cost out of CASH.
     assert w[1] == pytest.approx(0.999 * 1.012)
-    # Wealth grows through the boost window and then goes flat.
+    # Wealth grows through the 15-day boost window, then shrinks past it.
     assert w[15] > w[14]
-    assert w[20] == pytest.approx(w[15])
+    assert w[20] < w[15]
 
 
 def test_re_entry_is_rejected_rather_than_priced():
@@ -55,7 +55,7 @@ def test_switching_charges_the_cost_once_per_switch():
     a, b = m.index("A"), m.index("B")
     w = wealth_path(m, [a, a, b])
     # Switch into A (cost), hold A (free), switch to B (cost).
-    expected = 0.999 * 1.012 * 1.012 * 0.999 * 1.003
+    expected = 0.999 * 1.012 * 1.012 * 0.999 * 1.002
     assert w[3] == pytest.approx(expected)
 
 

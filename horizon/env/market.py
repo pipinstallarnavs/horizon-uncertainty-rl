@@ -50,15 +50,26 @@ def default_market(switch_cost: float = 0.001) -> Market:
     """Frozen calibrated parameters (2026-08-27).
 
     Chosen by automated search over 9,216 candidates against the calibration
-    targets, never hand-tuned. 1,386 combinations were feasible; the winner is
-    the highest value-separation margin among those that also pass the
-    non-collapse check on the uniform condition. The full feasible set is
-    committed in data/calibration.json for the appendix, so the study's
-    conclusions can be shown not to hinge on one lucky parameter choice.
+    targets, never hand-tuned. The full feasible set is committed in
+    data/calibration.json for the appendix, so the study's conclusions can be
+    shown not to hinge on one lucky parameter choice.
 
-    A "Sprinter" pays a high rate while freshly held and then stops, B
-    "Compounder" is flat, C "Late bloomer" is weak early and strong late, so the
-    best holding depends on how long it will be held.
+    A "Sprinter" pays 1.2%/day for its first 15 days held then decays to
+    -0.4%/day, B "Compounder" is flat, C "Late bloomer" is weak for 25 days
+    and then strong, so the best holding depends on how long it will be held.
+
+    Three properties are load-bearing, and each was added only after a search
+    produced a market that looked good and tested nothing:
+
+    - The optimum must beat a purely MYOPIC agent (margin here: 15.0%). An
+      earlier winner beat every fixed-asset baseline by 12% while matching greedy
+      exactly, because its late bloomer needed 50 days when only 42.5 remained in
+      expectation, so it was never worth entering.
+    - The optimal action must genuinely depend on the day. Another winner varied
+      on only 8.6% of reachable states, under P1's 20% gate.
+    - The memoryless GEOMETRIC control must stay below that gate, or it cannot
+      serve as a control at all. One winner put it at 20.8%, above the uniform
+      condition it is meant to contrast with.
 
     A decaying asset is only safe because re-entry is forbidden
     (horizon.env.rules). Without that rule the optimum farms A's clock reset by
@@ -66,9 +77,9 @@ def default_market(switch_cost: float = 0.001) -> Market:
     """
     return Market(
         assets=(
-            AssetSpec("A", early_rate=0.012, late_rate=0.0, breakpoint=15),
-            AssetSpec("B", early_rate=0.003, late_rate=0.003, breakpoint=1),
-            AssetSpec("C", early_rate=0.0005, late_rate=0.008, breakpoint=50),
+            AssetSpec("A", early_rate=0.012, late_rate=-0.004, breakpoint=15),
+            AssetSpec("B", early_rate=0.002, late_rate=0.002, breakpoint=1),
+            AssetSpec("C", early_rate=0.0005, late_rate=0.01, breakpoint=25),
             AssetSpec("CASH", early_rate=0.0, late_rate=0.0, breakpoint=1),
         ),
         switch_cost=switch_cost,

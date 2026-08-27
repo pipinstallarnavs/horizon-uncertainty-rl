@@ -106,12 +106,36 @@ The hypothesis "LLMs are rigid about time" is an intuition, not an established f
 
 Three risky assets plus cash, with cumulative return profiles chosen so the ranking depends on holding length. Returns are deterministic functions of holding duration in the base version (noise added as a robustness variant).
 
-| Asset | Profile | Daily return schedule (provisional) |
+| Asset | Profile | Daily return schedule (frozen by calibration, 2026-08-27) |
 |---|---|---|
-| A — "Sprinter" | Momentum then decay | +0.8%/day for the first 10 days held, then −0.2%/day |
-| B — "Compounder" | Slow steady growth | +0.25%/day, flat forever |
-| C — "Late bloomer" | Weak early, strong late | +0.05%/day for the first 40 days held, then +0.6%/day |
+| A — "Sprinter" | Momentum then decay | +1.2%/day for the first 15 days held, then -0.4%/day |
+| B — "Compounder" | Slow steady growth | +0.2%/day, flat forever |
+| C — "Late bloomer" | Weak early, strong late | +0.05%/day for the first 25 days held, then +1.0%/day |
 | Cash | Safe | 0%/day |
+
+Selected by automated search over 9,216 candidates against the calibration targets in
+`DESIGN.md` §P3 — never hand-tuned. The full feasible set is committed in
+`data/calibration.json` for the appendix. Resulting environment:
+
+| Exit | `V*` | Optimal path | Time-varying states |
+|---|---|---|---|
+| uniform | 1.4623 | `d1-15:A → d16-100:C` | 24.9% |
+| bimodal | 1.6129 | `d1-15:A → d16-100:C` | 37.3% |
+| geometric (control) | 1.1217 | `d1-15:A → d16-100:B` | 13.1% |
+
+**Two calibration targets were added after a search produced a market that looked
+excellent and tested nothing.** Both are recorded here because each represents a way this
+experiment could have silently failed:
+
+1. **Myopic separation.** An early winner beat every fixed-asset baseline by 12% — and
+   was matched *exactly* by a purely greedy agent that never looks past tomorrow. Its late
+   bloomer needed 50 days to pay off while only 42.5 remained in expectation at the
+   crossover, so entering it was never correct and the optimum degenerated to greed.
+   Beating fixed baselines is therefore not sufficient evidence that horizon reasoning is
+   required; the optimum must also beat myopic-greedy, and here it does by **15.0%**.
+2. **A control that actually controls.** Another winner put the memoryless geometric
+   condition at 20.8% time-varying states — *above* the uniform condition it exists to
+   contrast with. The control must stay below the non-collapse gate or it proves nothing.
 
 ### The no-re-entry rule (added 2026-08-27)
 

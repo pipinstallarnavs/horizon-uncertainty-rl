@@ -38,8 +38,8 @@ def test_cash_never_moves():
 def test_growth_is_one_plus_daily_return():
     m = default_market()
     assert m.growth(m.index("A"), 1) == pytest.approx(1.012)
-    assert m.growth(m.index("A"), 16) == pytest.approx(1.0)
-    assert m.growth(m.index("C"), 51) == pytest.approx(1.008)
+    assert m.growth(m.index("A"), 16) == pytest.approx(0.996)
+    assert m.growth(m.index("C"), 26) == pytest.approx(1.010)
 
 
 def test_the_sprinter_pays_less_once_stale_which_only_no_re_entry_makes_safe():
