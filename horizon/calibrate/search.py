@@ -10,8 +10,16 @@ the age-clock reset and the policy stops depending on t entirely.
 """
 import itertools
 import json
+from collections import Counter
 
-from horizon.calibrate.targets import evaluate_targets, fixed_asset_values
+from horizon.calibrate.targets import (
+    MAX_CROSSOVER_DAY,
+    MIN_CROSSOVER_DAY,
+    MIN_VALUE_MARGIN,
+    crossover_day,
+    evaluate_targets,
+    fixed_asset_values,
+)
 from horizon.env.distributions import bimodal_exit, uniform_exit
 from horizon.env.market import AssetSpec, Market
 from horizon.solver.backward import solve
@@ -57,25 +65,62 @@ def _params_of(market: Market) -> dict:
     }
 
 
-def search(grid: dict, N: int = 100) -> list:
-    """Evaluate every candidate and keep the feasible ones, best margin first."""
+def search(grid: dict, N: int = 100, on_progress=None) -> list:
+    """Evaluate every candidate and keep the feasible ones, best margin first.
+
+    Short-circuits on the uniform-only targets before paying for the bimodal
+    solve, which roughly halves the work since most candidates fail there.
+    `on_progress(done, total, counters)` is called periodically if supplied.
+    """
     dist_u, dist_b = uniform_exit(N), bimodal_exit(N)
+    counters = Counter()
     feasible = []
-    for market in candidate_markets(grid):
-        report = evaluate_targets(market, dist_u, dist_b)
-        if not report.all_pass:
+    markets = list(candidate_markets(grid))
+    for done, market in enumerate(markets, start=1):
+        counters["evaluated"] += 1
+        sol_u = solve(market, dist_u)
+
+        day = crossover_day(sol_u, market, dist_u)
+        if day is not None and MIN_CROSSOVER_DAY <= day <= MAX_CROSSOVER_DAY:
+            counters["interior_crossover"] += 1
+        else:
+            if on_progress and done % 500 == 0:
+                on_progress(done, len(markets), counters)
             continue
-        sol = solve(market, dist_u)
-        best_fixed = max(fixed_asset_values(market, dist_u).values())
-        feasible.append(
-            {
-                **_params_of(market),
-                "v_star": sol.v_star,
-                "best_fixed": best_fixed,
-                "value_margin": sol.v_star / best_fixed - 1.0,
-                "all_pass": True,
-            }
-        )
+
+        fixed = fixed_asset_values(market, dist_u)
+        best_fixed = max(fixed.values())
+        margin = sol_u.v_star / best_fixed - 1.0
+        if margin >= MIN_VALUE_MARGIN:
+            counters["value_separation"] += 1
+        else:
+            if on_progress and done % 500 == 0:
+                on_progress(done, len(markets), counters)
+            continue
+
+        report = evaluate_targets(market, dist_u, dist_b)
+        for field in (
+            "cash_separation",
+            "no_dominant_asset",
+            "cost_relevance",
+            "no_re_entry",
+        ):
+            if getattr(report, field):
+                counters[field] += 1
+        if report.all_pass:
+            counters["feasible"] += 1
+            feasible.append(
+                {
+                    **_params_of(market),
+                    "v_star": sol_u.v_star,
+                    "best_fixed": best_fixed,
+                    "value_margin": margin,
+                    "crossover_day": day,
+                    "all_pass": True,
+                }
+            )
+        if on_progress and done % 500 == 0:
+            on_progress(done, len(markets), counters)
     feasible.sort(key=lambda r: r["value_margin"], reverse=True)
     return feasible
 
@@ -92,3 +137,32 @@ def freeze(results: list, path: str) -> dict:
     with open(path, "w", encoding="utf-8") as handle:
         json.dump({"chosen": winner, "feasible_set": results}, handle, indent=2)
     return winner
+
+
+def main() -> None:
+    import sys
+    import time
+
+    started = time.time()
+
+    def progress(done, total, counters):
+        rate = done / max(time.time() - started, 1e-9)
+        eta = (total - done) / max(rate, 1e-9)
+        print(
+            f"  {done}/{total}  feasible={counters['feasible']}  "
+            f"crossover={counters['interior_crossover']}  "
+            f"value_sep={counters['value_separation']}  eta={eta:.0f}s",
+            flush=True,
+        )
+
+    results = search(DEFAULT_GRID, N=100, on_progress=progress)
+    print(f"done in {time.time() - started:.0f}s -> {len(results)} feasible", flush=True)
+    if not results:
+        print("NO FEASIBLE SET", flush=True)
+        sys.exit(1)
+    chosen = freeze(results, "data/calibration.json")
+    print(json.dumps(chosen, indent=2), flush=True)
+
+
+if __name__ == "__main__":
+    main()
