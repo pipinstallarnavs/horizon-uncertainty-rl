@@ -29,33 +29,41 @@ def solve(market: Market, dist: ExitDistribution) -> Solution:
     N, K = dist.N, market.n_assets
     hazard = np.array([0.0] + [dist.hazard(t) for t in range(1, N + 1)])
 
+    # Growth table G[k, age] for age 1..N, precomputed once rather than per state.
+    G = np.ones((K, N + 2))
+    for k in range(K):
+        for age in range(1, N + 2):
+            G[k, age] = market.growth(k, min(age, N + 1))
+
     # V[N+1] = 1.0: nothing accrues after the horizon. h(N) = 1 makes it unreachable.
     V = np.ones((N + 2, K, N + 1))
     pi = np.zeros((N + 1, K, N + 1), dtype=np.int8)
 
+    ages = np.arange(0, N)
+    held = ages + 1
+    next_age = np.minimum(held, N)
+    stay_cost = 1.0 - market.switch_cost
+
     for t in range(N, 0, -1):
         h = hazard[t]
+        tail = h + (1.0 - h) * V[t + 1]
+
+        # Switching resets the age clock to 1, so a switch's value depends only on
+        # the target, never on how long the current position has been held. That
+        # makes it a scalar per target instead of a per-state search.
+        switch_values = stay_cost * G[:, 1] * tail[:, 1]
+
         for k in range(K):
-            for age in range(0, N):
-                held_age = age + 1
-                # The day's multiplier and the continuation tail are separable,
-                # so each candidate action is one multiply against V[t+1].
-                best_value = market.growth(k, held_age) * (
-                    h + (1.0 - h) * V[t + 1, k, min(held_age, N)]
-                )
-                best_action = k
-                for target in range(K):
-                    if target == k:
-                        continue
-                    value = (
-                        (1.0 - market.switch_cost)
-                        * market.growth(target, 1)
-                        * (h + (1.0 - h) * V[t + 1, target, 1])
-                    )
-                    if value > best_value + 1e-15:
-                        best_value, best_action = value, target
-                V[t, k, age] = best_value
-                pi[t, k, age] = best_action
+            stay = G[k, held] * tail[k, next_age]
+
+            masked = switch_values.copy()
+            masked[k] = -np.inf
+            best_target = int(np.argmax(masked))
+            best_switch = masked[best_target]
+
+            take_switch = best_switch > stay + 1e-15
+            V[t, k, :N] = np.where(take_switch, best_switch, stay)
+            pi[t, k, :N] = np.where(take_switch, best_target, k)
 
     return Solution(V=V, pi=pi, v_star=float(V[1, CASH, 0]))
 

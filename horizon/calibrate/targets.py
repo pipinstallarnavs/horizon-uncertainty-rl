@@ -40,6 +40,28 @@ def crossover_day(sol: Solution, market: Market, dist: ExitDistribution):
     return None
 
 
+def has_re_entry(sol: Solution, market: Market, dist: ExitDistribution) -> bool:
+    """True if the optimal path ever returns to a risky asset it previously left.
+
+    Re-entry is the signature of the age-clock exploit: because the age clock
+    resets on switching, an asset that pays more when freshly held can be farmed
+    by bouncing out and back. Expected-switch counts do NOT catch this, because
+    weighting by an exit distribution that kills half the episodes early halves
+    the visible switch count. Detect it structurally instead.
+    """
+    holdings = optimal_holdings(sol, market, dist.N)
+    seen_then_left = set()
+    previous = CASH
+    for holding in holdings:
+        if holding != previous:
+            if holding in seen_then_left:
+                return True
+            if previous != CASH:
+                seen_then_left.add(previous)
+        previous = holding
+    return False
+
+
 def expected_switches(sol: Solution, market: Market, dist: ExitDistribution) -> float:
     """E[number of switches before exit], weighted by the exit distribution."""
     holdings = optimal_holdings(sol, market, dist.N)
@@ -61,6 +83,7 @@ class TargetReport:
     cash_separation: bool
     no_dominant_asset: bool
     cost_relevance: bool
+    no_re_entry: bool
 
     @property
     def all_pass(self) -> bool:
@@ -71,6 +94,7 @@ class TargetReport:
                 self.cash_separation,
                 self.no_dominant_asset,
                 self.cost_relevance,
+                self.no_re_entry,
             )
         )
 
@@ -103,4 +127,8 @@ def evaluate_targets(
     switches = expected_switches(sol_u, market, dist_uniform)
     cost_relevant = MIN_SWITCHES <= switches <= MAX_SWITCHES
 
-    return TargetReport(interior, value_sep, cash_sep, no_dominant, cost_relevant)
+    clean = not (
+        has_re_entry(sol_u, market, dist_uniform) or has_re_entry(sol_b, market, dist_bimodal)
+    )
+
+    return TargetReport(interior, value_sep, cash_sep, no_dominant, cost_relevant, clean)

@@ -19,8 +19,8 @@ def uniform_exit(N: int = 100) -> ExitDistribution:
 
 def bimodal_exit(
     N: int = 100,
-    early: tuple = (10, 10),
-    late: tuple = (91, 100),
+    early: tuple = None,
+    late: tuple = None,
     w: float = 0.5,
 ) -> ExitDistribution:
     """Mass split between an early and a late mode, with a dead zone between.
@@ -34,7 +34,20 @@ def bimodal_exit(
 
     Only the concentrated form gives the day-11 checkpoint the ground truth that
     hypothesis H3 and the event-timing metric are scored against.
+
+    The windows scale with N so that shorter horizons (used by the calibration
+    search and by tests) keep the same shape: a single early day one tenth of the
+    way in, and a late window covering the final tenth. At N=100 this reproduces
+    the headline configuration exactly: T=10, or Uniform{91..100}.
     """
+    if N < 4:
+        raise ValueError(f"bimodal exit needs N >= 4, got {N}")
+    if early is None:
+        day = max(1, N // 10)
+        early = (day, day)
+    if late is None:
+        width = max(1, N // 10)
+        late = (max(early[1] + 1, N - width + 1), N)
     pmf = np.zeros(N + 1)
     e0, e1 = early
     l0, l1 = late
