@@ -6,8 +6,10 @@ build step to break at 3am. Charts are inline SVG from horizon.dashboard.charts.
 """
 import os
 
-from fastapi import FastAPI, Response
-from fastapi.responses import HTMLResponse, JSONResponse
+import tempfile
+
+from fastapi import FastAPI
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 
 from horizon.dashboard.charts import bar_chart, line_chart
 from horizon.dashboard.render import page
@@ -50,6 +52,27 @@ def api_summary():
             "errors": _safe(lambda: r.error_counts(RUN_ID), {}),
         }
     )
+
+
+@app.get("/export")
+def export():
+    """Download the full report bundle: HTML report, CSVs and summary JSON."""
+    from horizon.env.distributions import DISTRIBUTIONS
+    from horizon.eval.export import export_bundle, records_from_rows
+
+    r = repo()
+    rows = _safe(lambda: r.episode_records(RUN_ID), [])
+    if not rows:
+        return JSONResponse({"error": "no completed episodes yet"}, status_code=409)
+
+    with r.cursor() as cur:
+        cur.execute("SELECT cell, v_star, horizon FROM runs WHERE run_id = %s", (RUN_ID,))
+        cell, v_star, horizon = cur.fetchone()
+
+    dist = DISTRIBUTIONS[cell.get("exit", "uniform")](horizon)
+    path = os.path.join(tempfile.gettempdir(), f"{RUN_ID}-bundle.zip")
+    export_bundle(path, RUN_ID, cell, records_from_rows(rows), dist, float(v_star))
+    return FileResponse(path, filename=f"{RUN_ID}-bundle.zip", media_type="application/zip")
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -97,6 +120,14 @@ def index():
     <section class="card">
       <h2>Data quality</h2>
       {_error_table(errors)}
+    </section>
+
+    <section class="card">
+      <h2>Export</h2>
+      <p class="sub">A self-contained HTML report with every chart inlined, plus
+      CSVs and a summary JSON. Every reported number is recomputable from the
+      bundle alone, without the database.</p>
+      <p><a class="btn" href="/export">Download report bundle</a></p>
     </section>
     """
     return HTMLResponse(page(RUN_ID, body))

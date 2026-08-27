@@ -70,6 +70,12 @@ table.data th { color: var(--muted); font-weight: 550; font-size: 11px;
                 text-transform: uppercase; letter-spacing: 0.06em; }
 table.data td:nth-child(2), table.data td:nth-child(3) { font-variant-numeric: tabular-nums; }
 tr.bad td { color: var(--bad); font-weight: 600; }
+.btn {
+  display: inline-block; padding: 9px 16px; border-radius: 7px;
+  background: var(--accent); color: var(--panel); text-decoration: none;
+  font-size: 13px; font-weight: 600;
+}
+.btn:hover { filter: brightness(1.08); }
 footer { color: var(--muted); font-size: 12px; padding: 0 28px 32px; max-width: 1100px; margin: 0 auto; }
 """
 
