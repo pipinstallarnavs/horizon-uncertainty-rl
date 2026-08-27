@@ -5,3 +5,10 @@ test:
 
 lint:
 	ruff check horizon tests
+
+.PHONY: verify calibrate
+verify:
+	python -m horizon.report
+
+calibrate:
+	python -m horizon.calibrate.search
