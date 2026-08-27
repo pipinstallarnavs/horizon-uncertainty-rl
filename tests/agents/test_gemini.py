@@ -29,6 +29,7 @@ class FakeClient:
             "prompt_tokens": reply.get("prompt_tokens", 100),
             "completion_tokens": reply.get("completion_tokens", 10),
             "thought_tokens": reply.get("thought_tokens", 40),
+            "thought_text": reply.get("thought_text", ""),
             "total_tokens": 150,
             "model_version": "gemini-3.7-flash",
             "latency_ms": 2100.0,
@@ -140,3 +141,68 @@ def test_limiter_never_drops_below_one():
     for _ in range(20):
         limiter.on_throttle()
     assert limiter.limit >= 1.0
+
+
+# --- reasoning traces ------------------------------------------------------ #
+#
+# includeThoughts=true was measured against the live endpoint: the deliberation
+# comes back as extra parts flagged thought=true, ahead of the answer part.
+
+
+def _payload(parts, thoughts=540):
+    return {
+        "candidates": [{"content": {"parts": parts}, "finishReason": "STOP"}],
+        "usageMetadata": {"promptTokenCount": 60, "candidatesTokenCount": 12,
+                          "thoughtsTokenCount": thoughts, "totalTokenCount": 612},
+        "modelVersion": "gemini-3.7-flash",
+    }
+
+
+def test_thought_parts_never_leak_into_the_answer_text():
+    # The trace habitually floats numbers it then rejects. Merged into the answer,
+    # a belief the model considered and discarded would be parsed as its stated one.
+    parsed = GeminiClient._parse(
+        _payload([
+            {"text": "Maybe BELIEF: 12? No -- day 12 of 56, so 44 remain.", "thought": True},
+            {"text": "BELIEF: 44\nACTION: HOLD"},
+        ]),
+        latency_ms=1.0,
+    )
+    assert parsed["text"] == "BELIEF: 44\nACTION: HOLD"
+    assert "Maybe BELIEF: 12" in parsed["thought_text"]
+    assert parse_reply(parsed["text"], probe=True)[1] == 44.0
+
+
+def test_multiple_thought_parts_are_joined_in_order():
+    parsed = GeminiClient._parse(
+        _payload([
+            {"text": "first", "thought": True},
+            {"text": "second", "thought": True},
+            {"text": "ACTION: HOLD"},
+        ]),
+        latency_ms=1.0,
+    )
+    assert parsed["thought_text"] == "first\nsecond"
+
+
+def test_a_reply_with_no_trace_still_parses():
+    parsed = GeminiClient._parse(_payload([{"text": "ACTION: HOLD"}]), latency_ms=1.0)
+    assert parsed["thought_text"] == ""
+    assert parsed["text"] == "ACTION: HOLD"
+
+
+def test_the_decision_carries_the_trace_through_to_the_log():
+    agent = make_agent([
+        {"text": "BELIEF: 38\nACTION: SWITCH B", "thought_text": "B is flat but safe."}
+    ])
+    assert agent.decide(obs()).thought_text == "B is flat but safe."
+
+
+def test_a_repair_reports_the_trace_of_the_reply_that_was_kept():
+    # The first attempt's reasoning explains a reply that was thrown away; the log
+    # must show the thinking behind the answer that was actually used.
+    agent = make_agent([
+        {"text": "I think I will hold.", "thought_text": "rambling first attempt"},
+        {"text": "ACTION: HOLD", "thought_text": "second attempt, correct format"},
+    ])
+    assert agent.decide(obs()).thought_text == "second attempt, correct format"

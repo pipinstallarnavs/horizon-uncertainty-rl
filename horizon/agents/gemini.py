@@ -13,6 +13,12 @@ on 2026-08-27:
    misreported as the model failing at temporal reasoning.
 3. Throughput ceilings vary by client and network, so the rate limiter discovers
    the ceiling by AIMD rather than hardcoding a number measured elsewhere.
+4. thinkingConfig.includeThoughts=true DOES work, and returns the deliberation
+   as extra parts flagged thought=true alongside the answer part. Since the
+   thoughts are billed either way, refusing to read them would throw away the
+   only direct evidence of *why* a trade was made. They are captured into their
+   own field and never concatenated into the answer text: the grammar parser
+   must never see a BELIEF the model merely considered mid-thought.
 """
 import random
 import re
@@ -35,6 +41,11 @@ SCOPES = ("https://www.googleapis.com/auth/cloud-platform",)
 
 # Never lower this. See module docstring point 2.
 MIN_OUTPUT_TOKENS = 512
+
+# Ask for the reasoning trace. This does not change what the model answers --
+# summaries are synthesised from thoughts the model already spent -- and the
+# tokens bill identically, so it is pure observability.
+INCLUDE_THOUGHTS = True
 
 ACTION_RE = re.compile(r"^\s*(?:ACTION:\s*)?(HOLD|SWITCH\s+(A|B|C|CASH))\s*$", re.IGNORECASE)
 BELIEF_RE = re.compile(r"BELIEF:\s*([0-9]+(?:\.[0-9]+)?)", re.IGNORECASE)
@@ -143,8 +154,13 @@ class GeminiClient:
                 "disabled on this model and a tighter budget returns empty text"
             )
         config = {"maxOutputTokens": max_output_tokens, "temperature": temperature}
+        thinking = {}
         if thinking_budget is not None:
-            config["thinkingConfig"] = {"thinkingBudget": thinking_budget}
+            thinking["thinkingBudget"] = thinking_budget
+        if INCLUDE_THOUGHTS:
+            thinking["includeThoughts"] = True
+        if thinking:
+            config["thinkingConfig"] = thinking
         body = {
             "systemInstruction": {"parts": [{"text": system}]},
             "contents": [{"role": "user", "parts": [{"text": user}]}],
@@ -197,10 +213,17 @@ class GeminiClient:
         candidates = payload.get("candidates") or [{}]
         candidate = candidates[0]
         parts = candidate.get("content", {}).get("parts", [])
-        text = "".join(part.get("text", "") for part in parts)
+        # A part carrying thought=true is deliberation, not the reply. Merging
+        # the two would let a belief the model floated and then rejected be
+        # parsed as its stated belief.
+        text = "".join(p.get("text", "") for p in parts if not p.get("thought"))
+        thought_text = "\n".join(
+            p.get("text", "") for p in parts if p.get("thought") and p.get("text")
+        )
         usage = payload.get("usageMetadata", {})
         return {
             "text": text,
+            "thought_text": thought_text,
             "finish_reason": candidate.get("finishReason"),
             "prompt_tokens": usage.get("promptTokenCount", 0),
             "completion_tokens": usage.get("candidatesTokenCount", 0),
@@ -301,6 +324,7 @@ class GeminiAgent(Agent):
             for key in ("prompt_tokens", "completion_tokens", "thought_tokens"):
                 result[key] += retry[key]
             result["text"] = retry["text"]
+            result["thought_text"] = retry.get("thought_text", "")
             result["latency_ms"] += retry["latency_ms"]
             action, belief, error = parse_reply(retry["text"], self.probe)
 
@@ -317,6 +341,7 @@ class GeminiAgent(Agent):
             action=action,
             belief=belief,
             raw=result["text"],
+            thought_text=result.get("thought_text", ""),
             error_class=error_class,
             repair_used=repaired,
             prompt_tokens=result["prompt_tokens"],

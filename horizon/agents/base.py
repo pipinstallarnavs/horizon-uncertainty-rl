@@ -37,6 +37,10 @@ class Decision:
     action: int
     belief: float = None
     raw: str = ""
+    # The model's own reasoning trace, returned separately from the answer when
+    # the provider will surrender it. Kept apart from `raw` so the grammar
+    # parser never sees deliberation and mistakes it for an answer.
+    thought_text: str = ""
     error_class: str = "ok"
     repair_used: bool = False
     prompt_tokens: int = 0
