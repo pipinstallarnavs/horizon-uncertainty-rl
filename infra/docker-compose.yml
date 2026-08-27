@@ -1,5 +1,31 @@
-# The whole run. `restart: always` plus the VM's own auto-restart means the
-# researcher's laptop is never in the loop once this is up.
+# The whole run. `restart: always` on the long-lived services plus the VM's own
+# auto-restart means the researcher's laptop is never in the loop once this is up.
+#
+# One orchestrator per experiment cell. They are independent -- separate run_ids,
+# separate work-unit queues, separate AIMD limiters that each discover their own
+# share of the throughput ceiling -- so cells run concurrently and a stall in one
+# cannot hold up another.
+x-cell: &cell
+  build:
+    context: ..
+    dockerfile: infra/Dockerfile
+  # NOT `always`: a cell that has played all its episodes exits 0 and is done.
+  # Restarting it forever would spin the whole stack on a finished experiment.
+  restart: on-failure
+  depends_on:
+    postgres:
+      condition: service_healthy
+  volumes:
+    - /run/secrets:/run/secrets:ro
+  command: ["python", "-m", "horizon.runner.orchestrator"]
+
+x-cell-env: &cell-env
+  HORIZON_DSN: postgresql://horizon:${POSTGRES_PASSWORD}@postgres:5432/horizon
+  HORIZON_PROJECT: ${HORIZON_PROJECT}
+  HORIZON_SA_KEY: /run/secrets/sa-key.json
+  HORIZON_WORKERS: ${HORIZON_WORKERS:-24}
+  HORIZON_EPISODES: ${HORIZON_EPISODES:-200}
+
 services:
   postgres:
     image: postgres:16-alpine
@@ -16,23 +42,55 @@ services:
       timeout: 5s
       retries: 20
 
+  # T1.1 -- uniform exit, distribution known. The reference cell.
   orchestrator:
-    build:
-      context: ..
-      dockerfile: infra/Dockerfile
-    restart: always
-    depends_on:
-      postgres:
-        condition: service_healthy
+    <<: *cell
     environment:
-      HORIZON_DSN: postgresql://horizon:${POSTGRES_PASSWORD}@postgres:5432/horizon
+      <<: *cell-env
       HORIZON_RUN_ID: ${HORIZON_RUN_ID}
-      HORIZON_PROJECT: ${HORIZON_PROJECT}
-      HORIZON_WORKERS: ${HORIZON_WORKERS:-24}
-      HORIZON_SA_KEY: /run/secrets/sa-key.json
-    volumes:
-      - /run/secrets:/run/secrets:ro
-    command: ["python", "-m", "horizon.runner.orchestrator"]
+      HORIZON_EXIT: uniform
+      HORIZON_INFO: K
+
+  # T1.2 -- bimodal exit. The hazard has a bright line at day 10; whether the
+  # agent's behaviour has one too is the sharpest single test in the study.
+  cell-bimodal:
+    <<: *cell
+    environment:
+      <<: *cell-env
+      HORIZON_RUN_ID: t1-2
+      HORIZON_EXIT: bimodal
+      HORIZON_INFO: K
+
+  # T1.3 -- geometric exit. Memoryless, so the optimal policy is very nearly
+  # time-invariant. An agent that still shifts its behaviour with the clock here
+  # is responding to elapsed time itself rather than to the horizon.
+  cell-geometric:
+    <<: *cell
+    environment:
+      <<: *cell-env
+      HORIZON_RUN_ID: t1-3
+      HORIZON_EXIT: geometric
+      HORIZON_INFO: K
+
+  # T1.4 -- uniform exit, distribution withheld. Separates failing to know the
+  # horizon from failing to act on it.
+  cell-unknown:
+    <<: *cell
+    environment:
+      <<: *cell-env
+      HORIZON_RUN_ID: t1-4
+      HORIZON_EXIT: uniform
+      HORIZON_INFO: U
+
+  # T1.5 -- oracle. The true exit day is stated outright, which removes the
+  # inference problem entirely and upper-bounds what the prompt can achieve.
+  cell-oracle:
+    <<: *cell
+    environment:
+      <<: *cell-env
+      HORIZON_RUN_ID: t1-5
+      HORIZON_EXIT: uniform
+      HORIZON_INFO: O
 
   dashboard:
     build:
