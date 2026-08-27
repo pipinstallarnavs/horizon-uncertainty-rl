@@ -233,6 +233,58 @@ class Repository:
             )
             return cur.fetchall()
 
+    def active_day(self, run_id: str):
+        """Mean episode day across in-flight work, for the hazard-ribbon marker."""
+        with self.cursor() as cur:
+            cur.execute(
+                """SELECT round(avg(day)) FROM agent_days
+                   WHERE run_id = %s AND ts > now() - interval '2 minutes'""",
+                (run_id,),
+            )
+            row = cur.fetchone()
+        return int(row[0]) if row and row[0] is not None else None
+
+    def switch_day_counts(self, run_id: str, horizon: int = 100):
+        """Switches by day across completed episodes, for the trading chart."""
+        with self.cursor() as cur:
+            cur.execute(
+                """SELECT d, count(*) FROM episodes, unnest(switch_days) AS d
+                   WHERE run_id = %s GROUP BY d ORDER BY d""",
+                (run_id,),
+            )
+            rows = cur.fetchall()
+        counts = [0] * (horizon + 1)
+        for day, n in rows:
+            if 0 <= day <= horizon:
+                counts[day] = int(n)
+        return counts
+
+    def belief_error_by_day(self, run_id: str):
+        """Mean stated belief per day, alongside the count behind it."""
+        with self.cursor() as cur:
+            cur.execute(
+                """SELECT day, avg(parsed_belief), count(parsed_belief) FROM agent_days
+                   WHERE run_id = %s AND parsed_belief IS NOT NULL
+                   GROUP BY day ORDER BY day""",
+                (run_id,),
+            )
+            return cur.fetchall()
+
+    def outcome_summary(self, run_id: str) -> dict:
+        """Mean terminal wealth and regret over completed episodes."""
+        with self.cursor() as cur:
+            cur.execute(
+                """SELECT count(*), avg(terminal_wealth), avg(regret)
+                   FROM episodes WHERE run_id = %s""",
+                (run_id,),
+            )
+            n, wealth, regret = cur.fetchone()
+        return {
+            "episodes": int(n or 0),
+            "mean_wealth": float(wealth) if wealth is not None else None,
+            "regret": float(regret) if regret is not None else None,
+        }
+
     def episode_records(self, run_id: str):
         with self.cursor() as cur:
             cur.execute(

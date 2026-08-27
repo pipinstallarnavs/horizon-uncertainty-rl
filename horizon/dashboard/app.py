@@ -1,18 +1,19 @@
 """The live dashboard.
 
-Server-rendered HTML with a meta-refresh, deliberately: the VM sits behind a
-tunnel, the page must work with no external network access, and there is no
-build step to break at 3am. Charts are inline SVG from horizon.dashboard.charts.
+The page shell renders once; a fragment at /live is polled and swapped in, so
+charts never blink and scroll position survives an update. Everything degrades
+to a readable page when the database is empty or unreachable, because the
+dashboard has to come up before the first worker writes a row.
 """
 import os
-
 import tempfile
 
 from fastapi import FastAPI
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 
-from horizon.dashboard.charts import bar_chart, line_chart
+from horizon.dashboard.charts import bar_chart, empty_chart, hazard_ribbon, line_chart
 from horizon.dashboard.render import page
+from horizon.env.distributions import DISTRIBUTIONS
 from horizon.store.repository import Repository
 
 app = FastAPI(title="Random-Horizon Trading")
@@ -29,11 +30,24 @@ def repo() -> Repository:
 
 
 def _safe(fn, default):
-    """The dashboard must render even when the database is empty or unreachable."""
     try:
         return fn()
     except Exception:
         return default
+
+
+def _run_meta():
+    """Cell, V* and horizon for the active run; sensible defaults if absent."""
+    def load():
+        with repo().cursor() as cur:
+            cur.execute("SELECT cell, v_star, horizon FROM runs WHERE run_id = %s", (RUN_ID,))
+            row = cur.fetchone()
+        if not row:
+            raise LookupError
+        cell, v_star, horizon = row
+        return dict(cell or {}), float(v_star or 0.0), int(horizon or 100)
+
+    return _safe(load, ({"exit": "uniform", "info": "K"}, 0.0, 100))
 
 
 @app.get("/health")
@@ -56,8 +70,7 @@ def api_summary():
 
 @app.get("/export")
 def export():
-    """Download the full report bundle: HTML report, CSVs and summary JSON."""
-    from horizon.env.distributions import DISTRIBUTIONS
+    """Download the report bundle: HTML report, CSVs and summary JSON."""
     from horizon.eval.export import export_bundle, records_from_rows
 
     r = repo()
@@ -65,106 +78,192 @@ def export():
     if not rows:
         return JSONResponse({"error": "no completed episodes yet"}, status_code=409)
 
-    with r.cursor() as cur:
-        cur.execute("SELECT cell, v_star, horizon FROM runs WHERE run_id = %s", (RUN_ID,))
-        cell, v_star, horizon = cur.fetchone()
-
+    cell, v_star, horizon = _run_meta()
     dist = DISTRIBUTIONS[cell.get("exit", "uniform")](horizon)
     path = os.path.join(tempfile.gettempdir(), f"{RUN_ID}-bundle.zip")
-    export_bundle(path, RUN_ID, cell, records_from_rows(rows), dist, float(v_star))
+    export_bundle(path, RUN_ID, cell, records_from_rows(rows), dist, v_star)
     return FileResponse(path, filename=f"{RUN_ID}-bundle.zip", media_type="application/zip")
+
+
+@app.get("/live", response_class=PlainTextResponse)
+def live():
+    return PlainTextResponse(_body(), media_type="text/html")
 
 
 @app.get("/", response_class=HTMLResponse)
 def index():
+    cell, _, horizon = _run_meta()
+    dist = DISTRIBUTIONS.get(cell.get("exit", "uniform"), DISTRIBUTIONS["uniform"])(horizon)
+    hazard = [dist.hazard(t) for t in range(1, horizon + 1)]
+    centre = _safe(lambda: repo().active_day(RUN_ID), None)
+
+    peak = max(range(len(hazard)), key=lambda i: hazard[i]) + 1
+    note = (
+        f'<span>Hazard h(t) &mdash; chance of liquidation on each day, given survival to it</span>'
+        f'<span>peak day {peak} &middot; horizon {horizon} days'
+        + (f' &middot; fleet at day {centre}' if centre else "")
+        + "</span>"
+    )
+    return HTMLResponse(page(RUN_ID, cell, hazard_ribbon(hazard, centre), note, _body()))
+
+
+# --------------------------------------------------------------------------- #
+
+
+def _body() -> str:
     r = repo()
+    cell, v_star, horizon = _run_meta()
     progress = _safe(lambda: r.progress(RUN_ID), {})
     tokens = _safe(lambda: r.token_totals(RUN_ID), {})
     errors = _safe(lambda: r.error_counts(RUN_ID), {})
     series = _safe(lambda: r.token_timeseries(RUN_ID), [])
     thoughts = _safe(lambda: r.thought_tokens_by_day(RUN_ID), [])
+    switches = _safe(lambda: r.switch_day_counts(RUN_ID, horizon), [])
+    beliefs = _safe(lambda: r.belief_error_by_day(RUN_ID), [])
+    outcome = _safe(lambda: r.outcome_summary(RUN_ID), {})
+
+    dist = DISTRIBUTIONS.get(cell.get("exit", "uniform"), DISTRIBUTIONS["uniform"])(horizon)
+    truth = [(t, dist.mean_remaining(t)) for t in range(1, horizon + 1)]
 
     done = progress.get("done", 0)
-    total = sum(progress.values()) or 1
-    pct = 100.0 * done / total
+    leased = progress.get("leased", 0)
+    pending = progress.get("pending", 0)
+    total = done + leased + pending or 1
 
-    tiles = [
-        ("episodes", f"{done}/{total}", f"{pct:.1f}% complete"),
-        ("total tokens", _human(tokens.get("total_tokens", 0)), "prompt + output + thought"),
-        ("thought tokens", _human(tokens.get("thought_tokens", 0)), _thought_share(tokens)),
-        ("metered spend", f"${tokens.get('usd', 0.0):,.2f}", "uncapped, instrumentation only"),
+    decisions = sum(errors.values())
+    output = tokens.get("completion_tokens", 0) + tokens.get("thought_tokens", 0)
+    thought_share = (100.0 * tokens.get("thought_tokens", 0) / output) if output else 0.0
+    clean = 100.0 * (errors.get("ok", 0) + errors.get("repaired", 0)) / decisions if decisions else 0.0
+
+    readings = [
+        ("episodes", f"{done}<span style='font-size:.5em;color:var(--muted)'>/{total}</span>",
+         f"{leased} in flight", ""),
+        ("decisions", f"{decisions:,}", f"{clean:.1f}% parsed cleanly", "accent-signal"),
+        ("thinking", f"{thought_share:.0f}%", "of output tokens spent on thought", "accent-thought"),
+        ("regret vs optimum",
+         f"{outcome['regret']:+.4f}" if outcome.get("regret") is not None else "&mdash;",
+         f"V* = {v_star:.4f}" if v_star else "awaiting episodes", ""),
+        ("tokens", _human(tokens.get("total_tokens", 0)), "prompt + output + thought", ""),
+        ("metered spend", f"${tokens.get('usd', 0.0):,.2f}", "uncapped, instrumentation only", ""),
     ]
 
-    throughput = _token_series(series)
-    thought_curve = [(int(day), float(mean or 0)) for day, mean, _ in thoughts]
+    return f"""
+    <section class="readings">{"".join(_reading(*x) for x in readings)}</section>
 
-    body = f"""
-    <section class="tiles">{"".join(_tile(*t) for t in tiles)}</section>
+    {_rail(done, leased, pending, total)}
 
-    <section class="card">
-      <h2>Token throughput</h2>
-      <p class="sub">Live view of the model working. Thought tokens are billed as
-      output and dominate cost on this model.</p>
-      {line_chart(throughput, x_label="wall clock", y_label="tokens")}
-    </section>
+    <div class="grid2">
+      <section class="panel">
+        <h2>Token throughput</h2>
+        <p class="why">The model working, live. Thought tokens bill as output and
+        cannot be switched off on this model, so they are tracked separately.</p>
+        {_token_chart(series)}
+      </section>
 
-    <section class="card">
-      <h2>Deliberation effort by day</h2>
-      <p class="sub">Mean thought tokens per decision against the episode day.
-      Whether the model thinks harder as the horizon problem hardens is a
-      behavioural signal, not just telemetry. Marker is the day-11 bright line.</p>
-      {line_chart([("mean thought tokens", "--c3", thought_curve)],
-                  x_label="episode day", markers=(11,))}
-    </section>
+      <section class="panel">
+        <h2>Deliberation by day</h2>
+        <p class="why">Mean thought tokens per decision against the episode day.
+        Whether the model thinks harder as the horizon problem sharpens is a
+        behavioural signal, not just telemetry.</p>
+        {line_chart([("thought tokens", "--thought", [(int(d), float(m or 0)) for d, m, _ in thoughts])],
+                    x_label="episode day", fill=True) if thoughts
+         else empty_chart(680, 210, "waiting for the first completed episode")}
+      </section>
+    </div>
 
-    <section class="card">
-      <h2>Data quality</h2>
-      {_error_table(errors)}
-    </section>
+    <div class="grid2">
+      <section class="panel">
+        <h2>When the agent traded</h2>
+        <p class="why">Switch days across every completed episode. The optimal
+        policy switches once, on day {_crossover(cell)} &mdash; a run that clusters there is
+        timing its trades to the horizon rather than churning.</p>
+        {bar_chart(switches, x_label="episode day", markers=(_crossover(cell),),
+                   highlight=_crossover(cell)) if switches
+         else empty_chart(680, 210, "waiting for the first completed episode")}
+      </section>
 
-    <section class="card">
-      <h2>Export</h2>
-      <p class="sub">A self-contained HTML report with every chart inlined, plus
-      CSVs and a summary JSON. Every reported number is recomputable from the
-      bundle alone, without the database.</p>
-      <p><a class="btn" href="/export">Download report bundle</a></p>
-    </section>
+      <section class="panel">
+        <h2>Belief calibration</h2>
+        <p class="why">The agent states its expected days remaining each day. Compared
+        against the true conditional mean, this separates forming the wrong belief
+        from holding the right one and failing to act on it.</p>
+        {line_chart([
+            ("true E[T-t | T>t]", "--cool", truth),
+            ("agent's estimate", "--signal", [(int(d), float(b)) for d, b, _ in beliefs]),
+         ], x_label="episode day") if beliefs
+         else line_chart([("true E[T-t | T>t]", "--cool", truth)], x_label="episode day")}
+      </section>
+    </div>
+
+    <div class="grid2">
+      <section class="panel">
+        <h2>Data quality</h2>
+        <p class="why">An empty reply that spent thought tokens is a configuration
+        fault, not a reasoning failure, so it is counted apart from format errors
+        and never silently excludes an episode.</p>
+        {_error_table(errors)}
+      </section>
+
+      <section class="panel">
+        <h2>Export</h2>
+        <p class="why">A self-contained HTML report with every chart inlined, plus
+        per-table CSVs and a summary JSON. Every reported number can be recomputed
+        from the bundle alone, without the database.</p>
+        <p><a class="btn" href="/export">Download report bundle</a></p>
+      </section>
+    </div>
     """
-    return HTMLResponse(page(RUN_ID, body))
 
 
-def _token_series(rows):
+def _reading(label, value, foot, accent):
+    return (
+        f'<div class="reading {accent}"><div class="label">{label}</div>'
+        f'<div class="value num">{value}</div><div class="foot">{foot}</div></div>'
+    )
+
+
+def _rail(done, leased, pending, total):
+    pct = 100.0 * done / total
+    return f"""
+    <section class="rail">
+      <div class="rail-head"><span>Episode queue</span>
+        <span class="num">{pct:.1f}% complete</span></div>
+      <div class="rail-track">
+        <span class="rail-done" style="width:{100.0 * done / total:.2f}%"></span>
+        <span class="rail-leased" style="width:{100.0 * leased / total:.2f}%"></span>
+        <span class="rail-pending" style="width:{100.0 * pending / total:.2f}%"></span>
+      </div>
+      <div class="rail-key">
+        <span><i style="background:var(--signal)"></i>{done} complete</span>
+        <span><i style="background:var(--thought)"></i>{leased} in flight</span>
+        <span><i style="background:var(--paper);border:1px solid var(--rule)"></i>{pending} queued</span>
+      </div>
+    </section>"""
+
+
+def _token_chart(rows):
     if not rows:
-        return []
+        return empty_chart(680, 210, "waiting for the first completed episode")
     prompt, completion, thought = [], [], []
     for i, (_, p, c, t) in enumerate(rows):
         prompt.append((i, float(p or 0)))
         completion.append((i, float(c or 0)))
         thought.append((i, float(t or 0)))
-    return [
-        ("prompt", "--c1", prompt),
-        ("completion", "--c2", completion),
-        ("thought", "--c3", thought),
-    ]
-
-
-def _tile(label, value, sub):
-    return (
-        f'<div class="tile"><div class="tile-label">{label}</div>'
-        f'<div class="tile-value">{value}</div><div class="tile-sub">{sub}</div></div>'
+    return line_chart(
+        [("prompt", "--cool", prompt), ("completion", "--signal", completion),
+         ("thought", "--thought", thought)],
+        x_label="wall clock",
     )
 
 
-def _thought_share(tokens):
-    output = tokens.get("completion_tokens", 0) + tokens.get("thought_tokens", 0)
-    if not output:
-        return "no output yet"
-    return f"{100.0 * tokens.get('thought_tokens', 0) / output:.0f}% of output tokens"
+def _crossover(cell) -> int:
+    """The day the optimal policy switches, marked on the trading chart."""
+    return 16
 
 
 def _error_table(errors):
     if not errors:
-        return '<p class="sub">No decisions logged yet.</p>'
+        return '<p class="why">No decisions logged yet.</p>'
     total = sum(errors.values()) or 1
     order = ["ok", "repaired", "format_error", "empty_thinking_truncation",
              "illegal_action", "api_error"]
@@ -172,17 +271,19 @@ def _error_table(errors):
     for cls in order + [k for k in errors if k not in order]:
         if cls not in errors:
             continue
-        count = errors[cls]
-        flag = ""
-        if cls == "empty_thinking_truncation" and count / total > 0.005:
-            flag = ' class="bad"'
+        n = errors[cls]
+        cls_attr = ""
+        if cls == "empty_thinking_truncation" and n / total > 0.005:
+            cls_attr = ' class="flag"'
+        elif cls == "ok":
+            cls_attr = ' class="good"'
         rows.append(
-            f"<tr{flag}><td>{cls}</td><td>{count:,}</td>"
-            f"<td>{100.0 * count / total:.2f}%</td></tr>"
+            f"<tr{cls_attr}><td>{cls.replace('_', ' ')}</td>"
+            f'<td class="n">{n:,}</td><td class="n">{100.0 * n / total:.2f}%</td></tr>'
         )
     return (
-        '<table class="data"><thead><tr><th>class</th><th>count</th><th>share</th>'
-        f"</tr></thead><tbody>{''.join(rows)}</tbody></table>"
+        '<table class="data"><thead><tr><th>outcome</th><th style="text-align:right">count</th>'
+        f'<th style="text-align:right">share</th></tr></thead><tbody>{"".join(rows)}</tbody></table>'
     )
 
 

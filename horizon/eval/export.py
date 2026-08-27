@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 import numpy as np
 
 from horizon.dashboard.charts import bar_chart, line_chart
-from horizon.dashboard.render import STYLE
+from horizon.dashboard.render import FONTS, STYLE
 from horizon.eval.metrics import (
     EpisodeRecord,
     belief_error_curve,
@@ -112,44 +112,45 @@ def html_report(run_id: str, cell: dict, tables: dict, dist, event_day: int = 11
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Random-Horizon Trading &mdash; {run_id}</title>
+{FONTS}
 <style>{STYLE}</style></head>
 <body>
-<header><h1>Random-Horizon Trading</h1>
-<span class="run">run {run_id} &middot; generated {generated}</span></header>
+<header><h1><span class="sub">Report</span>Random-Horizon Trading</h1>
+<div class="meta"><span><b>{run_id}</b></span><span>generated {generated}</span></div></header>
 <main>
-  <section class="card">
+  <section class="panel">
     <h2>Cell</h2>
-    <p class="sub">{json.dumps(cell)}</p>
+    <p class="why">{json.dumps(cell)}</p>
   </section>
 
-  <section class="card">
+  <section class="panel">
     <h2>Headline results</h2>
-    <p class="sub">Regret is measured against an exactly-solved optimal policy,
+    <p class="why">Regret is measured against an exactly-solved optimal policy,
     verified by brute-force enumeration and Monte-Carlo rollout.</p>
     {headline}
   </section>
 
-  <section class="card">
+  <section class="panel">
     <h2>Switch-day distribution</h2>
-    <p class="sub">When the agent traded. The marker is the bright line at day
+    <p class="why">When the agent traded. The marker is the bright line at day
     {event_day}, where the optimal action changes.</p>
-    {bar_chart(list(range(len(hist))), hist, markers=(event_day,))}
+    {bar_chart(hist, markers=(event_day,), highlight=event_day, x_label='episode day')}
   </section>
 
-  <section class="card">
+  <section class="panel">
     <h2>Belief calibration</h2>
-    <p class="sub">Mean absolute error between the agent's stated expected days
+    <p class="why">Mean absolute error between the agent's stated expected days
     remaining and the true conditional mean. Separates belief-formation failures
     from belief-to-action failures.</p>
-    {line_chart([("belief error (days)", "--c3",
+    {line_chart([("belief error (days)", "--thought",
                   [(i + 1, v) for i, v in enumerate(curve)])],
                 x_label="episode day", markers=(event_day,))}
   </section>
 
-  <section class="card">
+  <section class="panel">
     <h2>Ground truth: expected remaining time</h2>
-    <p class="sub">The quantity the agent's beliefs are scored against.</p>
-    {line_chart([("E[T-t | T>t]", "--c1", [(i + 1, v) for i, v in enumerate(truth)])],
+    <p class="why">The quantity the agent's beliefs are scored against.</p>
+    {line_chart([("E[T-t | T>t]", "--cool", [(i + 1, v) for i, v in enumerate(truth)])],
                 x_label="episode day", markers=(event_day,))}
   </section>
 </main>

@@ -1,140 +1,192 @@
 """Inline SVG chart primitives.
 
-Charts are rendered server-side as SVG rather than pulled from a CDN, because
-the dashboard is served behind a tunnel from a locked-down VM and must work with
-no external network access. Everything is theme-aware via CSS custom properties.
+Rendered server-side rather than pulled from a charting CDN: the VM is locked
+down and the page must work with no external scripts. Every colour is a CSS
+custom property so the whole set re-themes at once and stays meaningful --
+oxide red is hazard, brass is the model thinking, viridian is the agent acting.
 """
 import html
 import math
 
 
-def _scale(values, lo, hi, size, invert=False):
-    span = (hi - lo) or 1.0
-    out = []
-    for value in values:
-        frac = (value - lo) / span
-        out.append(size * (1.0 - frac) if invert else size * frac)
-    return out
+def _clean(points):
+    return [(x, y) for x, y in points if y is not None and not math.isnan(float(y))]
 
 
-def line_chart(series, width=680, height=220, pad=36, y_label="", x_label="",
-               markers=(), y_min=None, y_max=None):
-    """Multi-series line chart. `series` is [(name, colour_var, [(x, y), ...])]."""
-    points = [p for _, _, pts in series for p in pts]
+def hazard_ribbon(hazard, marker_day=None, width=1400, height=76):
+    """The signature element: the running condition's own hazard function.
+
+    Each day is a vertical bar whose height is h(t), the chance of being
+    liquidated on that day given survival to it. The marker shows where the
+    fleet's decisions currently sit, so the danger the agents are actually
+    trading through is visible at a glance rather than buried in a panel.
+    """
+    if not hazard:
+        return f'<svg class="ribbon" viewBox="0 0 {width} {height}" role="img"></svg>'
+
+    n = len(hazard)
+    peak = max(hazard) or 1.0
+    step = width / n
+    bars = []
+    for i, h in enumerate(hazard):
+        if h <= 0:
+            continue
+        bar_h = max(1.0, (h / peak) * (height - 16))
+        bars.append(
+            f'<rect x="{i * step:.2f}" y="{height - bar_h:.2f}" '
+            f'width="{max(step - 0.6, 0.7):.2f}" height="{bar_h:.2f}" '
+            f'fill="var(--hazard)" opacity="{0.30 + 0.55 * (h / peak):.2f}"/>'
+        )
+
+    mark = ""
+    if marker_day and 1 <= marker_day <= n:
+        x = (marker_day - 0.5) * step
+        mark = (
+            f'<line x1="{x:.1f}" y1="0" x2="{x:.1f}" y2="{height}" '
+            f'stroke="var(--signal)" stroke-width="2"/>'
+            f'<circle cx="{x:.1f}" cy="6" r="3.5" fill="var(--signal)"/>'
+        )
+
+    return (
+        f'<svg class="ribbon" viewBox="0 0 {width} {height}" preserveAspectRatio="none" '
+        f'role="img" aria-label="Hazard by day for the running exit distribution">'
+        f'{"".join(bars)}{mark}</svg>'
+    )
+
+
+def line_chart(series, width=680, height=210, pad=38, x_label="", markers=(),
+               y_min=None, y_max=None, fill=False):
+    """Multi-series line chart. `series` is [(name, css_var, [(x, y), ...])]."""
+    points = [p for _, _, pts in series for p in _clean(pts)]
     if not points:
-        return empty_chart(width, height, "no data yet")
+        return empty_chart(width, height, "waiting for data")
 
     xs = [p[0] for p in points]
-    ys = [p[1] for p in points if p[1] is not None and not math.isnan(p[1])]
-    if not ys:
-        return empty_chart(width, height, "no data yet")
-
+    ys = [float(p[1]) for p in points]
     x_lo, x_hi = min(xs), max(xs)
     y_lo = min(ys) if y_min is None else y_min
     y_hi = max(ys) if y_max is None else y_max
-    if y_hi == y_lo:
+    if y_hi <= y_lo:
         y_hi = y_lo + 1.0
 
-    plot_w, plot_h = width - 2 * pad, height - 2 * pad
-    parts = [
-        f'<svg viewBox="0 0 {width} {height}" class="chart" '
-        f'role="img" aria-label="{html.escape(y_label or "chart")}">'
+    pw, ph = width - 2 * pad, height - 2 * pad
+    out = [
+        f'<svg viewBox="0 0 {width} {height}" class="chart" role="img" '
+        f'aria-label="{html.escape(x_label or "chart")}">'
     ]
 
     for i in range(5):
-        y = pad + plot_h * i / 4
-        value = y_hi - (y_hi - y_lo) * i / 4
-        parts.append(f'<line x1="{pad}" y1="{y:.1f}" x2="{width - pad}" y2="{y:.1f}" class="grid"/>')
-        parts.append(f'<text x="{pad - 6}" y="{y + 4:.1f}" class="tick tick-y">{_fmt(value)}</text>')
+        y = pad + ph * i / 4
+        out.append(f'<line x1="{pad}" y1="{y:.1f}" x2="{width - pad}" y2="{y:.1f}" class="gridline"/>')
+        out.append(
+            f'<text x="{pad - 7}" y="{y + 3.5:.1f}" class="tick tick-y">'
+            f"{_fmt(y_hi - (y_hi - y_lo) * i / 4)}</text>"
+        )
+
+    def px(x):
+        return pad + pw * (x - x_lo) / ((x_hi - x_lo) or 1)
+
+    def py(y):
+        return pad + ph * (1.0 - (float(y) - y_lo) / (y_hi - y_lo))
 
     for day in markers:
         if x_lo <= day <= x_hi:
-            x = pad + plot_w * (day - x_lo) / ((x_hi - x_lo) or 1)
-            parts.append(
-                f'<line x1="{x:.1f}" y1="{pad}" x2="{x:.1f}" y2="{height - pad}" class="marker"/>'
+            out.append(
+                f'<line x1="{px(day):.1f}" y1="{pad - 6}" x2="{px(day):.1f}" '
+                f'y2="{height - pad}" class="marker"/>'
+                f'<text x="{px(day) + 5:.1f}" y="{pad - 1}" class="marker-label">d{day}</text>'
             )
-            parts.append(f'<text x="{x + 4:.1f}" y="{pad + 12}" class="marker-label">day {day}</text>')
 
     for name, colour, pts in series:
-        clean = [(x, y) for x, y in pts if y is not None and not math.isnan(y)]
+        clean = _clean(pts)
         if not clean:
             continue
-        coords = []
-        for x, y in clean:
-            px = pad + plot_w * (x - x_lo) / ((x_hi - x_lo) or 1)
-            py = pad + plot_h * (1.0 - (y - y_lo) / (y_hi - y_lo))
-            coords.append(f"{px:.1f},{py:.1f}")
-        parts.append(
-            f'<polyline points="{" ".join(coords)}" fill="none" '
-            f'stroke="var({colour})" stroke-width="2" class="series"/>'
+        coords = " ".join(f"{px(x):.1f},{py(y):.1f}" for x, y in clean)
+        if fill:
+            area = f"{px(clean[0][0]):.1f},{pad + ph:.1f} {coords} {px(clean[-1][0]):.1f},{pad + ph:.1f}"
+            out.append(f'<polygon points="{area}" fill="var({colour})" opacity=".12"/>')
+        out.append(
+            f'<polyline points="{coords}" fill="none" stroke="var({colour})" '
+            f'stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>'
         )
 
-    parts.append(
-        f'<text x="{width / 2}" y="{height - 6}" class="axis-label">{html.escape(x_label)}</text>'
-    )
-    parts.append("</svg>")
+    if x_label:
+        out.append(
+            f'<text x="{width / 2}" y="{height - 7}" class="axis-label">'
+            f"{html.escape(x_label)}</text>"
+        )
+    out.append("</svg>")
 
     legend = "".join(
         f'<span class="key"><i style="background:var({c})"></i>{html.escape(n)}</span>'
-        for n, c, _ in series
+        for n, c, pts in series
+        if _clean(pts)
     )
-    return f'<div class="chart-wrap">{"".join(parts)}<div class="legend">{legend}</div></div>'
+    return f'<div class="chart-wrap">{"".join(out)}</div><div class="legend">{legend}</div>'
 
 
-def bar_chart(labels, values, width=680, height=220, pad=36, colour="--c1", markers=()):
-    if not values:
-        return empty_chart(width, height, "no data yet")
-    plot_w, plot_h = width - 2 * pad, height - 2 * pad
-    hi = max(values) or 1
-    bar_w = plot_w / max(len(values), 1)
-    parts = [f'<svg viewBox="0 0 {width} {height}" class="chart" role="img">']
+def bar_chart(values, width=680, height=210, pad=38, colour="--cool", markers=(),
+              x_label="", highlight=None):
+    """Counts by index. `highlight` recolours one bar (the optimal switch day)."""
+    if not values or max(values) == 0:
+        return empty_chart(width, height, "waiting for data")
+
+    pw, ph = width - 2 * pad, height - 2 * pad
+    hi = max(values)
+    bw = pw / max(len(values), 1)
+    out = [f'<svg viewBox="0 0 {width} {height}" class="chart" role="img">']
 
     for i in range(5):
-        y = pad + plot_h * i / 4
-        parts.append(f'<line x1="{pad}" y1="{y:.1f}" x2="{width - pad}" y2="{y:.1f}" class="grid"/>')
-        parts.append(
-            f'<text x="{pad - 6}" y="{y + 4:.1f}" class="tick tick-y">'
-            f"{_fmt(hi - hi * i / 4)}</text>"
-        )
+        y = pad + ph * i / 4
+        out.append(f'<line x1="{pad}" y1="{y:.1f}" x2="{width - pad}" y2="{y:.1f}" class="gridline"/>')
+        out.append(f'<text x="{pad - 7}" y="{y + 3.5:.1f}" class="tick tick-y">{_fmt(hi - hi * i / 4)}</text>')
 
-    for i, value in enumerate(values):
-        h = plot_h * (value / hi)
-        x = pad + i * bar_w
-        parts.append(
-            f'<rect x="{x:.1f}" y="{pad + plot_h - h:.1f}" width="{max(bar_w - 1, 1):.1f}" '
-            f'height="{h:.1f}" fill="var({colour})" rx="1"/>'
+    for i, v in enumerate(values):
+        if v <= 0:
+            continue
+        h = ph * (v / hi)
+        c = "--signal" if highlight is not None and i == highlight else colour
+        out.append(
+            f'<rect x="{pad + i * bw:.1f}" y="{pad + ph - h:.1f}" '
+            f'width="{max(bw - 0.8, 1):.1f}" height="{h:.1f}" fill="var({c})"/>'
         )
 
     for day in markers:
         if 0 <= day < len(values):
-            x = pad + day * bar_w + bar_w / 2
-            parts.append(
-                f'<line x1="{x:.1f}" y1="{pad}" x2="{x:.1f}" y2="{height - pad}" class="marker"/>'
+            x = pad + day * bw + bw / 2
+            out.append(
+                f'<line x1="{x:.1f}" y1="{pad - 6}" x2="{x:.1f}" y2="{height - pad}" class="marker"/>'
+                f'<text x="{x + 5:.1f}" y="{pad - 1}" class="marker-label">d{day}</text>'
             )
 
-    step = max(1, len(labels) // 10)
-    for i in range(0, len(labels), step):
-        x = pad + i * bar_w + bar_w / 2
-        parts.append(
-            f'<text x="{x:.1f}" y="{height - pad + 14}" class="tick">{html.escape(str(labels[i]))}</text>'
+    stride = max(1, len(values) // 10)
+    for i in range(0, len(values), stride):
+        out.append(
+            f'<text x="{pad + i * bw + bw / 2:.1f}" y="{height - pad + 15}" '
+            f'class="tick" text-anchor="middle">{i}</text>'
         )
-    parts.append("</svg>")
-    return f'<div class="chart-wrap">{"".join(parts)}</div>'
+    if x_label:
+        out.append(f'<text x="{width / 2}" y="{height - 6}" class="axis-label">{html.escape(x_label)}</text>')
+    out.append("</svg>")
+    return f'<div class="chart-wrap">{"".join(out)}</div>'
 
 
 def empty_chart(width, height, message):
     return (
-        f'<div class="chart-wrap"><svg viewBox="0 0 {width} {height}" class="chart">'
+        f'<div class="chart-wrap"><svg viewBox="0 0 {width} {height}" class="chart" role="img">'
         f'<text x="{width / 2}" y="{height / 2}" class="empty">{html.escape(message)}</text>'
         f"</svg></div>"
     )
 
 
-def _fmt(value: float) -> str:
-    if abs(value) >= 1_000_000:
-        return f"{value / 1_000_000:.1f}M"
-    if abs(value) >= 1_000:
-        return f"{value / 1_000:.1f}k"
-    if abs(value) >= 10:
-        return f"{value:.0f}"
-    return f"{value:.2f}"
+def _fmt(v: float) -> str:
+    a = abs(v)
+    if a >= 1_000_000:
+        return f"{v / 1_000_000:.1f}M"
+    if a >= 1_000:
+        return f"{v / 1_000:.1f}k"
+    if a >= 10:
+        return f"{v:.0f}"
+    if a >= 1:
+        return f"{v:.1f}"
+    return f"{v:.2f}"
