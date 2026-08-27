@@ -87,3 +87,35 @@ def test_no_solved_policy_can_re_enter_an_asset():
     for market in (exploitable, default_market()):
         for dist in (uniform_exit(100), bimodal_exit(100)):
             assert not has_re_entry(solve(market, dist), market, dist)
+
+
+def test_myopic_value_matches_a_greedy_rollout():
+    from horizon.calibrate.targets import myopic_value
+
+    value = myopic_value(default_market(), uniform_exit(100))
+    assert value > 1.0
+
+
+def test_myopic_separation_rejects_a_market_solvable_without_the_horizon():
+    # A late bloomer that cannot bloom inside the expected remaining time is
+    # never worth entering, so the optimum collapses onto greedy and the
+    # condition tests no horizon reasoning at all -- even with a large margin
+    # over every fixed-asset baseline.
+    from horizon.calibrate.targets import myopic_value
+
+    unreachable_bloom = Market(
+        assets=(
+            AssetSpec("A", 0.012, 0.0, 15),
+            AssetSpec("B", 0.003, 0.003, 1),
+            AssetSpec("C", 0.0005, 0.008, 50),
+            AssetSpec("CASH", 0.0, 0.0, 1),
+        ),
+        switch_cost=0.001,
+    )
+    dist = uniform_exit(100)
+    v_star = solve(unreachable_bloom, dist).v_star
+    assert v_star == pytest.approx(myopic_value(unreachable_bloom, dist))
+
+    report = evaluate_targets(unreachable_bloom, dist, bimodal_exit(100))
+    assert not report.myopic_separation
+    assert not report.all_pass

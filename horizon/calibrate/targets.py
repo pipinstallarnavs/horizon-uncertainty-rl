@@ -19,6 +19,7 @@ MIN_CASH_MARGIN = 0.15
 MIN_SWITCHES = 1.0
 MAX_SWITCHES = 4.0
 MIN_TIME_VARYING = 0.20
+MIN_MYOPIC_MARGIN = 0.03
 
 
 def fixed_asset_values(market: Market, dist: ExitDistribution) -> dict:
@@ -40,6 +41,21 @@ def crossover_day(sol: Solution, market: Market, dist: ExitDistribution):
         if holdings[day] != holdings[day - 1]:
             return day + 1
     return None
+
+
+def myopic_value(market: Market, dist: ExitDistribution) -> float:
+    """Expected wealth of an agent that maximises tomorrow's return only.
+
+    The decisive baseline: if the optimum does not beat this, the environment can
+    be solved without looking past tomorrow and tests no horizon reasoning at all,
+    however impressive its margin over fixed-asset baselines looks.
+    """
+    from horizon.agents.scripted import MyopicGreedyAgent
+    from horizon.env.episode import expected_wealth
+    from horizon.runner.rollout import run_episode
+
+    holdings = run_episode(MyopicGreedyAgent(market), market, horizon=dist.N).holdings
+    return expected_wealth(market, holdings, dist.pmf)
 
 
 def has_re_entry(sol: Solution, market: Market, dist: ExitDistribution) -> bool:
@@ -87,6 +103,7 @@ class TargetReport:
     cost_relevance: bool
     no_re_entry: bool
     non_collapse: bool
+    myopic_separation: bool
 
     @property
     def all_pass(self) -> bool:
@@ -99,6 +116,7 @@ class TargetReport:
                 self.cost_relevance,
                 self.no_re_entry,
                 self.non_collapse,
+                self.myopic_separation,
             )
         )
 
@@ -143,6 +161,14 @@ def evaluate_targets(
         and time_varying_fraction(sol_b, dist_bimodal) >= MIN_TIME_VARYING
     )
 
+    # The dry run exposed a market where myopic-greedy exactly matched pi* under
+    # uniform exit: the late bloomer needed 50 days while only 42.5 remained in
+    # expectation, so it was never worth entering and the optimum reduced to
+    # greedy. A large margin over fixed-asset baselines did not catch that.
+    myopic = myopic_value(market, dist_uniform)
+    myopic_sep = sol_u.v_star >= myopic * (1.0 + MIN_MYOPIC_MARGIN)
+
     return TargetReport(
-        interior, value_sep, cash_sep, no_dominant, cost_relevant, clean, non_collapse
+        interior, value_sep, cash_sep, no_dominant, cost_relevant, clean, non_collapse,
+        myopic_sep,
     )

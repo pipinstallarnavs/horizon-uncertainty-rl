@@ -12,3 +12,7 @@ verify:
 
 calibrate:
 	python -m horizon.calibrate.search
+
+.PHONY: dryrun
+dryrun:
+	python -m horizon.dryrun
