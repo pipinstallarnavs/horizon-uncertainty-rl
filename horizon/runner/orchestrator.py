@@ -11,7 +11,13 @@ import threading
 import time
 from pathlib import Path
 
-from horizon.agents.gemini import AimdLimiter, GeminiAgent, GeminiClient, TokenSource
+from horizon.agents.gemini import (
+    DEFAULT_OUTPUT_TOKENS,
+    AimdLimiter,
+    GeminiAgent,
+    GeminiClient,
+    TokenSource,
+)
 from horizon.env.distributions import DISTRIBUTIONS
 from horizon.env.market import AssetSpec, Market, default_market
 from horizon.runner.worker import Worker
@@ -50,6 +56,12 @@ def build_cell() -> dict:
         "history": os.environ.get("HORIZON_HISTORY", "compressed"),
         "temperature": float(os.environ.get("HORIZON_TEMPERATURE", "0")),
         "thinking_budget": _optional_int("HORIZON_THINKING_BUDGET"),
+        # Part of the cell, not an implementation detail: it bounds how long the
+        # model is allowed to think, so two cells with different values are not
+        # comparable and the stored metadata has to say which is which.
+        "max_output_tokens": int(
+            os.environ.get("HORIZON_MAX_OUTPUT", str(DEFAULT_OUTPUT_TOKENS))
+        ),
     }
 
 
@@ -94,6 +106,7 @@ def main() -> int:
             history=cell["history"], temperature=cell["temperature"],
             thinking_budget=cell["thinking_budget"],
             true_exit_day=true_exit_day,
+            max_output_tokens=cell["max_output_tokens"],
         )
 
     stop = threading.Event()

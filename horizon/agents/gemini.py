@@ -42,6 +42,14 @@ SCOPES = ("https://www.googleapis.com/auth/cloud-platform",)
 # Never lower this. See module docstring point 2.
 MIN_OUTPUT_TOKENS = 512
 
+# What we actually ask for. Measured on the first cells: at 512 the thought-token
+# histogram piled up against the ceiling (more decisions in the top bucket than
+# the one below it) and traces ended mid-sentence, so the budget -- not the
+# model -- was deciding when reasoning stopped. Thought tokens bill as output,
+# but a truncated deliberation is unusable evidence, and the run is not
+# budget-constrained.
+DEFAULT_OUTPUT_TOKENS = 4096
+
 # Ask for the reasoning trace. This does not change what the model answers --
 # summaries are synthesised from thoughts the model already spent -- and the
 # tokens bill identically, so it is pure observability.
@@ -146,7 +154,8 @@ class GeminiClient:
         )
 
     def generate(self, system: str, user: str, temperature: float = 0.0,
-                 max_output_tokens: int = MIN_OUTPUT_TOKENS, thinking_budget: int = None) -> dict:
+                 max_output_tokens: int = DEFAULT_OUTPUT_TOKENS,
+                 thinking_budget: int = None) -> dict:
         """One completion. Returns a dict with text, token counts and latency."""
         if max_output_tokens < MIN_OUTPUT_TOKENS:
             raise ValueError(
@@ -276,6 +285,7 @@ class GeminiAgent(Agent):
         temperature: float = 0.0,
         thinking_budget: int = None,
         true_exit_day: int = None,
+        max_output_tokens: int = DEFAULT_OUTPUT_TOKENS,
     ):
         self.client = client
         self.market = market
@@ -283,6 +293,7 @@ class GeminiAgent(Agent):
         self.history = history
         self.temperature = temperature
         self.thinking_budget = thinking_budget
+        self.max_output_tokens = max_output_tokens
         self.system = system_prompt(
             market, dist, condition, variant, probe, true_exit_day
         )
@@ -294,6 +305,7 @@ class GeminiAgent(Agent):
             user,
             temperature=self.temperature,
             thinking_budget=self.thinking_budget,
+            max_output_tokens=self.max_output_tokens,
         )
 
         # See module docstring point 2: an empty reply that spent thought tokens
@@ -320,6 +332,7 @@ class GeminiAgent(Agent):
                 repair,
                 temperature=self.temperature,
                 thinking_budget=self.thinking_budget,
+                max_output_tokens=self.max_output_tokens,
             )
             for key in ("prompt_tokens", "completion_tokens", "thought_tokens"):
                 result[key] += retry[key]
