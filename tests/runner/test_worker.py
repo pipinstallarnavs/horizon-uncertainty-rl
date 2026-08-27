@@ -94,3 +94,52 @@ def test_illegal_action_is_refused_and_logged():
 
     rows, _ = play_episode(ReEntrant(), market, dist, sol, exit_day=6)
     assert any(r["error_class"] == "illegal_action" for r in rows)
+
+
+def test_the_reasoning_trace_is_stored_alongside_the_reply():
+    market, dist, sol = setup()
+
+    class Talkative(FixedAgent):
+        def decide(self, obs):
+            from horizon.agents.base import Decision
+
+            return Decision(action=0, raw="ACTION: HOLD",
+                            thought_text="A still compounds; nothing to do.")
+
+    rows, _ = play_episode(Talkative(0), market, dist, sol, exit_day=3)
+    assert all(r["thought_text"] == "A still compounds; nothing to do." for r in rows)
+
+
+def test_a_refused_action_keeps_the_reasoning_that_produced_it():
+    # The trace behind an illegal move is the most diagnostic one there is:
+    # discarding it would hide whether the model forgot the no-re-entry rule.
+    market, dist, sol = setup()
+
+    class ReEntrantTalker(FixedAgent):
+        def __init__(self):
+            super().__init__(0)
+            self.day = 0
+
+        def decide(self, obs):
+            self.day += 1
+            from horizon.agents.base import Decision
+
+            return Decision(action=1 if self.day in (2, 3) else 0,
+                            thought_text="B looked cheap again.")
+
+    rows, _ = play_episode(ReEntrantTalker(), market, dist, sol, exit_day=6)
+    refused = [r for r in rows if r["error_class"] == "illegal_action"]
+    assert refused and all(r["thought_text"] == "B looked cheap again." for r in refused)
+
+
+def test_the_trace_is_capped_but_generously():
+    market, dist, sol = setup()
+
+    class Verbose(FixedAgent):
+        def decide(self, obs):
+            from horizon.agents.base import Decision
+
+            return Decision(action=0, thought_text="x" * 40000)
+
+    rows, _ = play_episode(Verbose(0), market, dist, sol, exit_day=2)
+    assert len(rows[0]["thought_text"]) == 16000

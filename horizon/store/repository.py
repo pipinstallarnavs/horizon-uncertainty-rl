@@ -140,11 +140,13 @@ class Repository:
                 """INSERT INTO agent_days (
                        run_id, episode, day, holding, age, wealth,
                        prompt_tokens, completion_tokens, thought_tokens, cache_hit,
-                       raw_completion, parsed_belief, parsed_action, repair_used, error_class,
+                       raw_completion, thought_text,
+                       parsed_belief, parsed_action, repair_used, error_class,
                        truth_m_t, truth_h_t, truth_pi_star, truth_q_loss, latency_ms)
                    VALUES (%(run_id)s, %(episode)s, %(day)s, %(holding)s, %(age)s, %(wealth)s,
                        %(prompt_tokens)s, %(completion_tokens)s, %(thought_tokens)s, %(cache_hit)s,
-                       %(raw_completion)s, %(parsed_belief)s, %(parsed_action)s, %(repair_used)s,
+                       %(raw_completion)s, %(thought_text)s,
+                       %(parsed_belief)s, %(parsed_action)s, %(repair_used)s,
                        %(error_class)s, %(truth_m_t)s, %(truth_h_t)s, %(truth_pi_star)s,
                        %(truth_q_loss)s, %(latency_ms)s)
                    ON CONFLICT (run_id, episode, day) DO NOTHING""",
@@ -289,7 +291,7 @@ class Repository:
 
     TRACE_COLUMNS = """episode, day, holding, age, wealth, parsed_belief, parsed_action,
                        truth_m_t, truth_h_t, truth_pi_star, truth_q_loss,
-                       thought_tokens, error_class, raw_completion"""
+                       thought_tokens, error_class, raw_completion, thought_text"""
 
     def recent_trades(self, run_id: str, limit: int = 60):
         """Every day the agent actually changed position, newest first.
@@ -345,6 +347,21 @@ class Repository:
                     WHERE run_id = %s AND truth_q_loss > 0
                     ORDER BY truth_q_loss DESC LIMIT %s""",
                 (run_id, limit),
+            )
+            return cur.fetchall()
+
+    def wealth_by_day(self, run_id: str):
+        """The fleet equity curve: mean wealth held on each episode day.
+
+        Averaged only over episodes still alive on that day, which is what the
+        agents actually experienced; padding dead episodes forward would invent
+        a flat tail that no agent ever traded through.
+        """
+        with self.cursor() as cur:
+            cur.execute(
+                """SELECT day, avg(wealth), min(wealth), max(wealth), count(*)
+                   FROM agent_days WHERE run_id = %s GROUP BY day ORDER BY day""",
+                (run_id,),
             )
             return cur.fetchall()
 

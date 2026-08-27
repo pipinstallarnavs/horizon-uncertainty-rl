@@ -74,6 +74,7 @@ def play_episode(agent, market, dist, solution, exit_day: int, horizon: int = 10
         if action != holding and not is_available(mask, action):
             decision = Decision(
                 action=holding, belief=decision.belief, raw=decision.raw,
+                thought_text=decision.thought_text,
                 error_class="illegal_action", repair_used=decision.repair_used,
                 prompt_tokens=decision.prompt_tokens,
                 completion_tokens=decision.completion_tokens,
@@ -105,6 +106,9 @@ def play_episode(agent, market, dist, solution, exit_day: int, horizon: int = 10
                 "thought_tokens": decision.thought_tokens,
                 "cache_hit": None,
                 "raw_completion": decision.raw[:4000],
+                # Generous cap: the reasoning trace is the point of the log, and
+                # truncating it mid-argument loses exactly the part worth reading.
+                "thought_text": (decision.thought_text or "")[:16000],
                 "parsed_belief": decision.belief,
                 "parsed_action": decision.action,
                 "repair_used": decision.repair_used,

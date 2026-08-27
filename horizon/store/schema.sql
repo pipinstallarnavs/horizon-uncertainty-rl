@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS agent_days (
     thought_tokens    INTEGER     NOT NULL DEFAULT 0,
     cache_hit         BOOLEAN,
     raw_completion    TEXT,
+    thought_text      TEXT,
     parsed_belief     DOUBLE PRECISION,
     parsed_action     SMALLINT,
     repair_used       BOOLEAN     NOT NULL DEFAULT FALSE,
@@ -59,6 +60,11 @@ CREATE TABLE IF NOT EXISTS agent_days (
     ts                TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (run_id, episode, day)
 );
+
+-- Added after the first cell was already running: the reasoning trace turned
+-- out to be retrievable, and a live run should not have to be discarded to
+-- start recording it.
+ALTER TABLE agent_days ADD COLUMN IF NOT EXISTS thought_text TEXT;
 
 CREATE INDEX IF NOT EXISTS agent_days_by_run ON agent_days (run_id, day);
 CREATE INDEX IF NOT EXISTS agent_days_errors ON agent_days (run_id, error_class);
