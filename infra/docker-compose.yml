@@ -5,6 +5,13 @@
 # separate work-unit queues, separate AIMD limiters that each discover their own
 # share of the throughput ceiling -- so cells run concurrently and a stall in one
 # cannot hold up another.
+#
+# Generation t2. The t1 cells ran with a 512-token output budget, which was
+# clipping the model's reasoning: the thought-token histogram piled up against
+# the ceiling and traces ended mid-sentence. How long the model may think is a
+# treatment, not a logging detail, so the cells were re-run rather than continued
+# under a changed budget. The t1 rows are kept and stay readable in the
+# dashboard; nothing was deleted to make room for these.
 x-cell: &cell
   build:
     context: ..
@@ -25,6 +32,7 @@ x-cell-env: &cell-env
   HORIZON_SA_KEY: /run/secrets/sa-key.json
   HORIZON_WORKERS: ${HORIZON_WORKERS:-24}
   HORIZON_EPISODES: ${HORIZON_EPISODES:-200}
+  HORIZON_MAX_OUTPUT: ${HORIZON_MAX_OUTPUT:-4096}
 
 services:
   postgres:
@@ -43,11 +51,11 @@ services:
       retries: 20
 
   # T1.1 -- uniform exit, distribution known. The reference cell.
-  orchestrator:
+  cell-uniform:
     <<: *cell
     environment:
       <<: *cell-env
-      HORIZON_RUN_ID: ${HORIZON_RUN_ID}
+      HORIZON_RUN_ID: t2-1
       HORIZON_EXIT: uniform
       HORIZON_INFO: K
 
@@ -57,7 +65,7 @@ services:
     <<: *cell
     environment:
       <<: *cell-env
-      HORIZON_RUN_ID: t1-2
+      HORIZON_RUN_ID: t2-2
       HORIZON_EXIT: bimodal
       HORIZON_INFO: K
 
@@ -68,7 +76,7 @@ services:
     <<: *cell
     environment:
       <<: *cell-env
-      HORIZON_RUN_ID: t1-3
+      HORIZON_RUN_ID: t2-3
       HORIZON_EXIT: geometric
       HORIZON_INFO: K
 
@@ -78,7 +86,7 @@ services:
     <<: *cell
     environment:
       <<: *cell-env
-      HORIZON_RUN_ID: t1-4
+      HORIZON_RUN_ID: t2-4
       HORIZON_EXIT: uniform
       HORIZON_INFO: U
 
@@ -88,7 +96,7 @@ services:
     <<: *cell
     environment:
       <<: *cell-env
-      HORIZON_RUN_ID: t1-5
+      HORIZON_RUN_ID: t2-5
       HORIZON_EXIT: uniform
       HORIZON_INFO: O
 
@@ -102,7 +110,8 @@ services:
         condition: service_healthy
     environment:
       HORIZON_DSN: postgresql://horizon:${POSTGRES_PASSWORD}@postgres:5432/horizon
-      HORIZON_RUN_ID: ${HORIZON_RUN_ID}
+      # Which cell opens by default. Every other cell is one click away.
+      HORIZON_RUN_ID: ${HORIZON_DASHBOARD_RUN:-t2-1}
     expose:
       - "8000"
 
