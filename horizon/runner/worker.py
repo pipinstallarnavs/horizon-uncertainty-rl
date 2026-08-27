@@ -159,7 +159,12 @@ def _q_loss(solution, market, day, holding, age, mask, action) -> float:
 
 
 class Worker(threading.Thread):
-    """One lease-play-write loop. Start as many as the rate limiter can feed."""
+    """One lease-play-write loop. Start as many as the rate limiter can feed.
+
+    `agent_factory` is called with the episode's realised exit day. Only the
+    oracle condition uses it -- its prompt states the exit outright -- but the
+    factory has to receive it for that condition to be runnable at all.
+    """
 
     def __init__(self, repo, run_id, agent_factory, market, dist, solution,
                  horizon=100, stop_event=None, empty_trunc_guard=0.005):
@@ -186,7 +191,7 @@ class Worker(threading.Thread):
             try:
                 self.repo.clear_episode(self.run_id, episode)
                 exit_day = sample_exit_day(self.dist, episode)
-                agent = self.agent_factory()
+                agent = self.agent_factory(exit_day)
                 rows, summary = play_episode(
                     agent, self.market, self.dist, self.solution, exit_day, self.horizon
                 )

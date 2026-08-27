@@ -1,3 +1,5 @@
+import time
+
 import numpy as np
 import pytest
 
@@ -143,3 +145,83 @@ def test_the_trace_is_capped_but_generously():
 
     rows, _ = play_episode(Verbose(0), market, dist, sol, exit_day=2)
     assert len(rows[0]["thought_text"]) == 16000
+
+
+def test_the_oracle_condition_is_actually_runnable():
+    # Condition O states the realised exit day in the prompt, so the agent
+    # factory must receive it. Without this the oracle cell raises on its first
+    # episode and the arm cannot run at all.
+    from horizon.agents.gemini import GeminiAgent
+    from horizon.runner.orchestrator import build_cell
+
+    market, dist, _ = setup()
+    seen = {}
+
+    class Recorder:
+        def __call__(self, true_exit_day=None):
+            seen["exit_day"] = true_exit_day
+            return FixedAgent(0)
+
+    factory = Recorder()
+    factory(41)
+    assert seen["exit_day"] == 41
+
+    # And the prompt the oracle builds must name that exact day.
+    agent = GeminiAgent(None, market, dist, condition="O", true_exit_day=41)
+    assert "end of day 41" in agent.system
+    assert build_cell()["info"] in ("K", "U", "O")
+
+
+def test_the_worker_hands_the_exit_day_to_the_factory():
+    from horizon.runner.worker import Worker
+
+    market, dist, sol = setup()
+    got = []
+
+    def factory(true_exit_day=None):
+        got.append(true_exit_day)
+        return FixedAgent(0)
+
+    class OneShotRepo:
+        def __init__(self):
+            self.claimed = False
+
+        def claim(self, *a, **k):
+            if self.claimed:
+                return None
+            self.claimed = True
+            return {"episode": 3, "attempts": 1}
+
+        def clear_episode(self, *a):
+            pass
+
+        def write_days(self, *a):
+            pass
+
+        def write_episode(self, *a):
+            pass
+
+        def record_spend(self, *a):
+            pass
+
+        def complete(self, *a):
+            self.done = True
+
+        def fail(self, *a):
+            pass
+
+        def set_run_status(self, *a):
+            pass
+
+    import threading
+
+    stop = threading.Event()
+    worker = Worker(OneShotRepo(), "r", factory, market, dist, sol, 100, stop)
+    worker.start()
+    for _ in range(100):
+        if got:
+            break
+        time.sleep(0.05)
+    stop.set()
+    worker.join(timeout=5)
+    assert got and got[0] == sample_exit_day(dist, 3)

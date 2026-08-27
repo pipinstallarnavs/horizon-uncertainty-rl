@@ -87,12 +87,13 @@ def main() -> int:
     tokens = TokenSource(key_path)
     client = GeminiClient(project=project, token_source=tokens, limiter=limiter)
 
-    def agent_factory():
+    def agent_factory(true_exit_day=None):
         return GeminiAgent(
             client, market, dist,
             condition=cell["info"], variant=cell["prompt"], probe=cell["probe"],
             history=cell["history"], temperature=cell["temperature"],
             thinking_budget=cell["thinking_budget"],
+            true_exit_day=true_exit_day,
         )
 
     stop = threading.Event()
