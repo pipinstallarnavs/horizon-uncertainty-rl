@@ -1,19 +1,36 @@
 """The decision log.
 
 Regret says how much was lost; this says when and why. Every row is one day the
-agent changed position, carrying what it believed at the time, what the optimal
-policy would have done, and what that choice cost -- so a wrong trade can be
-read as a wrong belief or a right belief acted on badly, which is exactly the
-distinction the study is built to make.
+agent changed position, carrying what it believed at the time, what it was
+thinking when it decided, what the optimal policy would have done, and what the
+choice cost -- so a wrong trade can be read as a wrong belief or a right belief
+acted on badly, which is exactly the distinction the study is built to make.
+
+Rows arrive as tuples in Repository.TRACE_COLUMNS order. They are zipped into
+dicts here rather than unpacked positionally: the column list has grown twice
+already, and a silent off-by-one in a 15-way unpack would misattribute a
+model's reasoning to the wrong day.
 """
 import html
 
 from horizon.env.market import HOLDINGS
 
+TRACE_FIELDS = (
+    "episode", "day", "holding", "age", "wealth", "belief", "action",
+    "m_t", "h_t", "pi_star", "q_loss", "thought_tokens", "error",
+    "raw", "thought_text",
+)
+
 ACTION_VERB = {
     ("CASH", "A"): "bought", ("CASH", "B"): "bought", ("CASH", "C"): "bought",
     ("A", "CASH"): "sold to cash", ("B", "CASH"): "sold to cash", ("C", "CASH"): "sold to cash",
 }
+
+
+def row(record) -> dict:
+    """Zip a trace tuple into a dict, with came_from present only when selected."""
+    fields = TRACE_FIELDS + (("came_from",) if len(record) > len(TRACE_FIELDS) else ())
+    return dict(zip(fields, record))
 
 
 def _name(idx):
@@ -26,8 +43,7 @@ def _name(idx):
 def _verb(came_from, holding) -> str:
     if came_from is None:
         return "entered"
-    a, b = _name(came_from), _name(holding)
-    return ACTION_VERB.get((a, b), "rotated")
+    return ACTION_VERB.get((_name(came_from), _name(holding)), "rotated")
 
 
 def _belief_gap(stated, truth):
@@ -39,12 +55,46 @@ def _belief_gap(stated, truth):
     return f"{gap:+.0f}d", tone
 
 
-def _reasoning(raw: str) -> str:
-    """The model's own words, trimmed to the lines that carry the decision."""
-    if not raw:
-        return ""
-    lines = [ln.strip() for ln in raw.strip().splitlines() if ln.strip()]
-    return html.escape(" · ".join(lines[:3])[:240])
+def _days(value):
+    return f"{float(value):.0f}d" if value is not None else "&mdash;"
+
+
+def _cost(value):
+    return f"{float(value):.4f}" if float(value or 0.0) > 1e-9 else "&mdash;"
+
+
+def reasoning(r: dict) -> str:
+    """The model's deliberation and its reply, collapsed behind a disclosure.
+
+    The reasoning trace is the only direct evidence of *why* a position changed,
+    so it is shown in full rather than clipped to a preview: a summary of a
+    summary is not evidence. It stays collapsed because a hundred open traces is
+    not a log any more.
+    """
+    thought = (r.get("thought_text") or "").strip()
+    reply = (r.get("raw") or "").strip()
+    if not thought and not reply:
+        return '<p class="no-trace">No reply recorded for this day.</p>'
+
+    key = f'{r.get("episode")}:{r.get("day")}'
+    words = len(thought.split())
+    summary = (
+        f"reasoning &mdash; {words:,} words, {int(r.get('thought_tokens') or 0):,} thought tokens"
+        if thought
+        else "reply only &mdash; the model returned no reasoning trace"
+    )
+
+    parts = []
+    if thought:
+        parts.append(f'<div class="trace">{html.escape(thought)}</div>')
+    if reply:
+        parts.append('<p class="trace-head">what it answered</p>')
+        parts.append(f'<div class="trace reply">{html.escape(reply)}</div>')
+
+    return (
+        f'<details class="think" data-key="{html.escape(key)}">'
+        f"<summary>{summary}</summary>{''.join(parts)}</details>"
+    )
 
 
 def trade_rows(rows) -> str:
@@ -55,34 +105,28 @@ def trade_rows(rows) -> str:
         )
 
     out = []
-    for (episode, day, holding, age, wealth, belief, action, m_t, h_t, pi_star,
-         q_loss, thought, error, raw, came_from) in rows:
-        verb = _verb(came_from, holding)
-        gap, tone = _belief_gap(belief, m_t)
-        optimal = _name(pi_star)
-        agreed = int(pi_star) == int(holding) if pi_star is not None else None
-        cost = float(q_loss or 0.0)
-
+    for record in rows:
+        r = row(record)
+        came_from = r.get("came_from")
+        gap, tone = _belief_gap(r["belief"], r["m_t"])
+        agreed = int(r["pi_star"]) == int(r["holding"]) if r["pi_star"] is not None else None
         verdict = (
             '<span class="tag tag-ok">matched optimum</span>' if agreed
-            else f'<span class="tag tag-bad">optimum held {optimal}</span>'
+            else f'<span class="tag tag-bad">optimum held {_name(r["pi_star"])}</span>'
         )
-        cost_cell = f"{cost:.4f}" if cost > 1e-9 else "&mdash;"
-
         out.append(f"""
         <tr>
-          <td class="n dim">{episode}</td>
-          <td class="n day">d{day}</td>
-          <td class="move"><b>{verb} {_name(holding)}</b>
+          <td class="n dim">{r["episode"]}</td>
+          <td class="n day">d{r["day"]}</td>
+          <td class="move"><b>{_verb(came_from, r["holding"])} {_name(r["holding"])}</b>
             <span class="dim">from {_name(came_from) if came_from is not None else "cash"}</span></td>
-          <td class="n">{float(wealth):.4f}</td>
-          <td class="n">{f"{float(belief):.0f}d" if belief is not None else "&mdash;"}
-            <span class="gap {tone}">{gap}</span></td>
+          <td class="n">{float(r["wealth"]):.4f}</td>
+          <td class="n">{_days(r["belief"])}<span class="gap {tone}">{gap}</span></td>
           <td>{verdict}</td>
-          <td class="n cost">{cost_cell}</td>
-          <td class="n dim">{int(thought or 0)}</td>
+          <td class="n cost">{_cost(r["q_loss"])}</td>
+          <td class="n dim">{int(r["thought_tokens"] or 0)}</td>
         </tr>
-        <tr class="said"><td></td><td colspan="7"><q>{_reasoning(raw)}</q></td></tr>""")
+        <tr class="said"><td></td><td colspan="7">{reasoning(r)}</td></tr>""")
 
     return f"""
     <div class="log-wrap">
@@ -101,20 +145,20 @@ def costly_rows(rows) -> str:
     if not rows:
         return '<p class="why">No suboptimal decisions recorded yet.</p>'
     out = []
-    for (episode, day, holding, age, wealth, belief, action, m_t, h_t, pi_star,
-         q_loss, thought, error, raw) in rows:
-        gap, tone = _belief_gap(belief, m_t)
+    for record in rows:
+        r = row(record)
+        gap, tone = _belief_gap(r["belief"], r["m_t"])
         out.append(f"""
         <tr>
-          <td class="n dim">{episode}</td>
-          <td class="n day">d{day}</td>
-          <td class="move">held <b>{_name(holding)}</b>
-            <span class="dim">optimum: {_name(pi_star)}</span></td>
-          <td class="n">{f"{float(belief):.0f}d" if belief is not None else "&mdash;"}
-            <span class="gap {tone}">{gap}</span></td>
-          <td class="n">{float(m_t or 0):.0f}d</td>
-          <td class="n cost bad">{float(q_loss):.4f}</td>
-        </tr>""")
+          <td class="n dim">{r["episode"]}</td>
+          <td class="n day">d{r["day"]}</td>
+          <td class="move">held <b>{_name(r["holding"])}</b>
+            <span class="dim">optimum: {_name(r["pi_star"])}</span></td>
+          <td class="n">{_days(r["belief"])}<span class="gap {tone}">{gap}</span></td>
+          <td class="n">{float(r["m_t"] or 0):.0f}d</td>
+          <td class="n cost bad">{float(r["q_loss"]):.4f}</td>
+        </tr>
+        <tr class="said"><td></td><td colspan="5">{reasoning(r)}</td></tr>""")
     return f"""
     <div class="log-wrap">
       <table class="data log">
@@ -138,8 +182,8 @@ def episode_picker(episodes, selected=None) -> str:
         sign = "over" if (regret or 0) < 0 else "under"
         chips.append(
             f'<a class="chip{active}" href="/decisions?episode={episode}">'
-            f'<b>ep {episode}</b><span class="dim">exit d{exit_day} · '
-            f'{switches} trades · {sign} by {abs(float(regret or 0)):.3f}</span></a>'
+            f'<b>ep {episode}</b><span class="dim">exit d{exit_day} &middot; '
+            f'{switches} trades &middot; {sign} by {abs(float(regret or 0)):.3f}</span></a>'
         )
     return f'<div class="chips">{"".join(chips)}</div>'
 
@@ -148,23 +192,22 @@ def episode_trace_table(rows, episode) -> str:
     if not rows:
         return f'<p class="why">No rows recorded for episode {episode}.</p>'
     out = []
-    for (ep, day, holding, age, wealth, belief, action, m_t, h_t, pi_star,
-         q_loss, thought, error, raw, came_from) in rows:
-        changed = came_from is not None and int(came_from) != int(holding)
-        gap, tone = _belief_gap(belief, m_t)
-        row_class = ' class="switch"' if changed else ""
-        marker = "&#9679;" if changed else ""
+    for record in rows:
+        r = row(record)
+        came_from = r.get("came_from")
+        changed = came_from is not None and int(came_from) != int(r["holding"])
+        gap, tone = _belief_gap(r["belief"], r["m_t"])
         out.append(f"""
-        <tr{row_class}>
-          <td class="n day">{marker} d{day}</td>
-          <td class="move">{_name(holding)}<span class="dim"> · age {age}</span></td>
-          <td class="n">{float(wealth):.4f}</td>
-          <td class="n">{f"{float(belief):.0f}d" if belief is not None else "&mdash;"}
-            <span class="gap {tone}">{gap}</span></td>
-          <td class="n dim">{float(m_t or 0):.0f}d</td>
-          <td class="n dim">{_name(pi_star)}</td>
-          <td class="n">{f"{float(q_loss):.4f}" if float(q_loss or 0) > 1e-9 else "&mdash;"}</td>
-        </tr>""")
+        <tr{' class="switch"' if changed else ""}>
+          <td class="n day">{"&#9679;" if changed else ""} d{r["day"]}</td>
+          <td class="move">{_name(r["holding"])}<span class="dim">&middot; age {r["age"]}</span></td>
+          <td class="n">{float(r["wealth"]):.4f}</td>
+          <td class="n">{_days(r["belief"])}<span class="gap {tone}">{gap}</span></td>
+          <td class="n dim">{float(r["m_t"] or 0):.0f}d</td>
+          <td class="n dim">{_name(r["pi_star"])}</td>
+          <td class="n">{_cost(r["q_loss"])}</td>
+        </tr>
+        <tr class="said"><td></td><td colspan="6">{reasoning(r)}</td></tr>""")
     return f"""
     <div class="log-wrap tall">
       <table class="data log">

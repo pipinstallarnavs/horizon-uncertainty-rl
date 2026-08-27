@@ -13,15 +13,17 @@ client = TestClient(app)
 
 
 def trade(episode=1, day=16, holding=1, came_from=0, belief=42.0, m_t=42.5,
-          pi_star=1, q_loss=0.0, raw="BELIEF: 42\nACTION: SWITCH B", thought=180):
+          pi_star=1, q_loss=0.0, raw="BELIEF: 42\nACTION: SWITCH B", thought=180,
+          thought_text="A decays after day 15, so I rotate now."):
     # Column order matches Repository.recent_trades.
     return (episode, day, holding, 1, 1.0662, belief, holding, m_t, 0.01,
-            pi_star, q_loss, thought, "ok", raw, came_from)
+            pi_star, q_loss, thought, "ok", raw, thought_text, came_from)
 
 
-def costly(episode=2, day=30, holding=0, belief=90.0, m_t=35.5, pi_star=2, q_loss=0.05):
+def costly(episode=2, day=30, holding=0, belief=90.0, m_t=35.5, pi_star=2, q_loss=0.05,
+           thought_text="I still think there is plenty of time left."):
     return (episode, day, holding, 14, 1.10, belief, holding, m_t, 0.02,
-            pi_star, q_loss, 200, "ok", "BELIEF: 90\nACTION: HOLD")
+            pi_star, q_loss, 200, "ok", "BELIEF: 90\nACTION: HOLD", thought_text)
 
 
 def test_trade_log_names_the_move_in_plain_language():
@@ -87,9 +89,9 @@ def test_episode_picker_marks_the_open_episode():
 
 def test_episode_trace_marks_the_days_the_position_changed():
     rows = [
-        (1, 1, 0, 1, 1.0, 50.0, 0, 50.5, 0.01, 0, 0.0, 100, "ok", "", None),
-        (1, 2, 0, 2, 1.01, 49.0, 0, 49.5, 0.01, 0, 0.0, 100, "ok", "", 0),
-        (1, 3, 1, 1, 1.01, 48.0, 1, 48.5, 0.01, 1, 0.0, 100, "ok", "", 0),
+        (1, 1, 0, 1, 1.0, 50.0, 0, 50.5, 0.01, 0, 0.0, 100, "ok", "", "", None),
+        (1, 2, 0, 2, 1.01, 49.0, 0, 49.5, 0.01, 0, 0.0, 100, "ok", "", "", 0),
+        (1, 3, 1, 1, 1.01, 48.0, 1, 48.5, 0.01, 1, 0.0, 100, "ok", "", "", 0),
     ]
     html = episode_trace_table(rows, 1)
     assert html.count('class="switch"') == 1
@@ -107,3 +109,44 @@ def test_shell_carries_both_tabs():
     assert 'data-tab="overview"' in html
     assert 'data-tab="decisions"' in html
     assert html.count('class="tabpanel"') == 2
+
+
+def test_trade_log_carries_the_models_reasoning_trace():
+    html = trade_rows([trade(thought_text="A decays after day 15, so I rotate now.")])
+    assert "A decays after day 15" in html
+    assert 'class="trace"' in html
+
+
+def test_reasoning_is_collapsed_and_keyed_so_it_survives_a_poll():
+    # The page reloads this fragment every five seconds; an expanded trace must
+    # be re-opened afterwards, which needs a stable key.
+    html = trade_rows([trade(episode=7, day=16)])
+    assert '<details class="think" data-key="7:16"' in html
+
+
+def test_reasoning_escapes_the_trace_as_well_as_the_reply():
+    html = trade_rows([trade(thought_text="<img src=x onerror=alert(1)>")])
+    assert "<img src=x" not in html
+    assert "&lt;img src=x" in html
+
+
+def test_reasoning_says_so_when_the_model_returned_nothing():
+    html = trade_rows([trade(raw="", thought_text="")])
+    assert "No reply recorded" in html
+
+
+def test_reasoning_reports_the_size_of_the_trace():
+    html = trade_rows([trade(thought_text="one two three", thought=512)])
+    assert "3 words" in html
+    assert "512 thought tokens" in html
+
+
+def test_costly_rows_carry_the_reasoning_too():
+    # The costliest decisions are exactly the ones worth reading the thinking for.
+    assert "plenty of time left" in costly_rows([costly()])
+
+
+def test_episode_trace_exposes_the_reasoning_per_day():
+    rows = [(1, 1, 0, 1, 1.0, 50.0, 0, 50.5, 0.01, 0, 0.0, 100, "ok", "",
+             "day one, entering A", None)]
+    assert "day one, entering A" in episode_trace_table(rows, 1)
