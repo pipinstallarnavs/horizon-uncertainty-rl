@@ -20,8 +20,8 @@ Use exit distributions with non-constant hazard, and *prove* non-collapse before
 2. **Automated non-collapse check** (run in CI before experiments): solve the backward induction (see P6) and assert that the optimal action table `π*(t, holding, age)` is *not constant in `t`* for fixed `(holding, age)` on at least 20% of reachable states. If the assertion fails, the environment is degenerate — fix parameters before spending API budget.
 3. Ship three distributions:
    - `UniformExit(N=100)`: `h(t) = 1/(N−t+1)` — rising hazard, gradual updating.
-   - `BimodalExit(early=[1,10], late=[91,100], w=0.5)`: hazard spike → zero → spike; creates the day-11 information event.
-   - `GeometricExit(p=0.02, truncated at N)`: control condition; the same assertion above should *nearly fail* here (policy nearly stationary except truncation effects) — this validates that the checker itself works.
+   - `BimodalExit(early=[10,10], late=[91,100], w=0.5)`: a coin flip on day 10, then zero hazard for 80 days, then a spike. Creates the day-11 information event. **The early mass must be concentrated on one day**; spreading it over days 1-10 resolves the posterior gradually and leaves no bright line at all (see README §3.1).
+   - `GeometricExit(p=0.08, truncated at N)`: control condition; the same assertion above should *nearly fail* here (policy nearly stationary except truncation effects) — this validates that the checker itself works. **p must be large enough that truncation is negligible**: at p=0.02 the residual atom on day N holds 13.5% of the mass and the control varies *more* with time (26.4%) than the uniform condition it is meant to contrast with (22.9%). At p=0.08 the atom is 0.0003 and the control varies on 11.5%.
 
 **Acceptance criterion.** Non-collapse check passes for uniform and bimodal; approximately fails for geometric.
 
@@ -283,6 +283,9 @@ MARKET (fully known, no hidden information):
 - CASH: 0%/day.
 - Switching your holding costs 0.1% of your wealth. Holding is free.
 - Return clocks reset when you switch into an asset.
+- ONCE YOU LEAVE AN ASSET (A, B or C) YOU CAN NEVER HOLD IT AGAIN. Choose the
+  order you use them carefully. CASH is the exception: you may move in and out
+  of CASH as often as you like.
 
 LIQUIDATION:
 - At the end of each day, your position may be force-liquidated, ending the game.

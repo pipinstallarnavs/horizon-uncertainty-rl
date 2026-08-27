@@ -108,30 +108,50 @@ Three risky assets plus cash, with cumulative return profiles chosen so the rank
 
 | Asset | Profile | Daily return schedule (provisional) |
 |---|---|---|
-| A — "Laggard" | Steady but weak | +0.3%/day, flat forever (distractor) |
-| B — "Compounder" | Steady, best over short holds | +0.6%/day, flat forever |
-| C — "Late bloomer" | Nothing early, strong late | 0%/day for the first 20 days held, then +0.8%/day |
+| A — "Sprinter" | Momentum then decay | +0.8%/day for the first 10 days held, then −0.2%/day |
+| B — "Compounder" | Slow steady growth | +0.25%/day, flat forever |
+| C — "Late bloomer" | Weak early, strong late | +0.05%/day for the first 40 days held, then +0.6%/day |
 | Cash | Safe | 0%/day |
 
-**All assets are monotone in holding age — this is a hard constraint, revised 2026-08-27.**
-The original design used a "Sprinter" paying +0.8%/day for its first 10 days held and
-−0.2%/day thereafter. Because return clocks reset on switching (below) while a switch
-costs only 0.1%, the exact optimum farmed the reset: `A(10 days) → B(1 day) → A(10 days)`,
-forever, for 18 switches per episode, never touching C. Worse, the resulting policy was
-**identical at every `t`** — 0% of reachable states changed action on any day — which is
-precisely the degeneracy §3.1 exists to prevent. The environment would have tested nothing
-temporal.
+### The no-re-entry rule (added 2026-08-27)
 
-The failure is intrinsic to the shape, not to the numbers: *any* asset paying more when
-freshly held rewards re-entry. So no asset may have `late_rate < early_rate`. Horizon
-dependence now comes from monotone assets instead — B wins over short holds, C wins only
-if held past its breakpoint, and resetting C's clock is punishing rather than rewarding.
-Under the bimodal exit the optimum is a single clean switch: hold B on days 1–10, hold C
-from day 11 (`V* = 1.4233`).
+**Once the agent leaves a risky asset, it may never hold that asset again.** Cash is
+exempt and may be entered and left freely. The rule is stated verbatim in the agent's
+prompt.
+
+This rule is what makes a decaying asset usable at all. Return clocks reset on switching
+(below), so an asset paying more when freshly held can be farmed by bouncing out and back.
+Measured against the exact optimum, the original parameters produced exactly that:
+
+```
+d1-10:A   d11:B   d12-21:A   d22:B   d23-32:A   ...      18 switches, C never held
+```
+
+Worse, the resulting policy was **identical at every `t`** — 0% of reachable states changed
+action on any day — which is precisely the degeneracy §3.1 exists to prevent. The
+environment would have tested nothing temporal.
+
+Raising the switch cost does not fix it: the cost required to deter the cycle (>2.6%, some
+26× the designed 0.1%) also deters the single genuine adaptation the experiment is about.
+Forbidding re-entry removes the exploit by construction while leaving one-way adaptation
+free, and it restores the original three asset profiles above.
+
+With the rule in place the optimum is a single clean switch, and the two headline
+conditions diverge in an interpretable way:
+
+| Exit | Optimal path | `V*` |
+|---|---|---|
+| uniform | hold A days 1–10, then **B** for the rest | 1.1964 |
+| bimodal | hold A days 1–10, then **C** for the rest | 1.2648 |
+
+Both ride the Sprinter through its boost window; they differ in what they hold afterwards.
+Under uniform exit remaining time is shrinking, so the steady compounder wins; under
+bimodal exit, surviving day 10 buys 80 risk-free days, so the late bloomer wins. That
+divergence is the behavioural signature the study is built to detect.
 
 Notes:
 
-- Returns depend on **how long the asset has been held** (per-position clock), which is what makes holding-length reasoning necessary. This is the intended design, and it is disclosed to the agent verbatim.
+- Returns depend on **how long the asset has been held** (per-position clock), which is what makes holding-length reasoning necessary. This is the intended design, and it is disclosed to the agent verbatim. Clocks reset on entry, which is why the no-re-entry rule above is required.
 - Parameters above are provisional; final values are set by requiring (i) a crossover day `t*` in the interior of `[1, N]` under uniform exit, and (ii) meaningful value differences between optimal and naive policies (target: optimal beats best fixed-asset baseline by ≥ 5% expected terminal wealth). Calibrated numerically before any LLM runs.
 - **Noise variant**: add i.i.d. Gaussian noise (σ = 0.5%/day) to each asset's daily return, keeping expectations as above. Verifies findings are not artifacts of determinism.
 
