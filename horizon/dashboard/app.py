@@ -7,15 +7,24 @@ dashboard has to come up before the first worker writes a row.
 """
 import os
 import tempfile
+from functools import lru_cache
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 
-from horizon.dashboard.charts import bar_chart, empty_chart, hazard_ribbon, line_chart
+from horizon.dashboard.charts import (
+    bar_chart,
+    empty_chart,
+    equity_chart,
+    hazard_ribbon,
+    holding_bands,
+    line_chart,
+)
 from horizon.dashboard.decisions import (
     costly_rows,
     episode_picker,
     episode_trace_table,
+    row,
     trade_rows,
 )
 from horizon.dashboard.render import page
@@ -54,6 +63,35 @@ def _run_meta():
         return dict(cell or {}), float(v_star or 0.0), int(horizon or 100)
 
     return _safe(load, ({"exit": "uniform", "info": "K"}, 0.0, 100))
+
+
+@lru_cache(maxsize=8)
+def _optimal_path(exit_name: str, horizon: int):
+    """What the optimal policy holds each day, and the wealth that produces.
+
+    Drawn behind every equity curve so a trade can be judged against what was
+    actually available rather than against zero. Solved once and cached: with
+    deterministic returns the policy is open-loop, so one path serves every
+    episode of the cell.
+    """
+    from horizon.env.episode import wealth_path
+    from horizon.runner.orchestrator import market_from_calibration
+    from horizon.solver.backward import optimal_holdings, solve
+
+    market = market_from_calibration()
+    dist = DISTRIBUTIONS.get(exit_name, DISTRIBUTIONS["uniform"])(horizon)
+    holdings = optimal_holdings(solve(market, dist), market, horizon)
+    wealth = wealth_path(market, holdings)
+    return tuple(holdings), tuple((t, float(wealth[t])) for t in range(1, horizon + 1))
+
+
+def _optimal_curve(exit_name: str, horizon: int):
+    return _optimal_path(exit_name, horizon)[1]
+
+
+def _reference(exit_name, horizon, last_day=None):
+    curve = _safe(lambda: _optimal_curve(exit_name, horizon), ())
+    return [(d, w) for d, w in curve if last_day is None or d <= last_day]
 
 
 @app.get("/health")
@@ -134,6 +172,7 @@ def _body() -> str:
     switches = _safe(lambda: r.switch_day_counts(RUN_ID, horizon), [])
     beliefs = _safe(lambda: r.belief_error_by_day(RUN_ID), [])
     outcome = _safe(lambda: r.outcome_summary(RUN_ID), {})
+    equity = _safe(lambda: r.wealth_by_day(RUN_ID), [])
 
     dist = DISTRIBUTIONS.get(cell.get("exit", "uniform"), DISTRIBUTIONS["uniform"])(horizon)
     truth = [(t, dist.mean_remaining(t)) for t in range(1, horizon + 1)]
@@ -165,6 +204,16 @@ def _body() -> str:
 
     {_rail(done, leased, pending, total)}
 
+    <section class="panel">
+      <h2>Equity curve &mdash; the whole fleet</h2>
+      <p class="why">Mean wealth held on each episode day, against what the optimal
+      policy would have held in the same market. The optimum enters A on day 1 and
+      rotates to C on day {_crossover(cell, horizon)}; the notch there is the switch cost, which every
+      trade pays. Where the two curves separate is where horizon reasoning was
+      worth money.</p>
+      {_fleet_equity(equity, cell, horizon)}
+    </section>
+
     <div class="grid2">
       <section class="panel">
         <h2>Token throughput</h2>
@@ -188,10 +237,10 @@ def _body() -> str:
       <section class="panel">
         <h2>When the agent traded</h2>
         <p class="why">Switch days across every completed episode. The optimal
-        policy switches once, on day {_crossover(cell)} &mdash; a run that clusters there is
+        policy switches once, on day {_crossover(cell, horizon)} &mdash; a run that clusters there is
         timing its trades to the horizon rather than churning.</p>
-        {bar_chart(switches, x_label="episode day", markers=(_crossover(cell),),
-                   highlight=_crossover(cell)) if switches
+        {bar_chart(switches, x_label="episode day", markers=(_crossover(cell, horizon),),
+                   highlight=_crossover(cell, horizon)) if switches
          else empty_chart(680, 210, "waiting for the first completed episode")}
       </section>
 
@@ -234,14 +283,27 @@ def _decision_log(episode: int = None) -> str:
     episodes = _safe(lambda: r.completed_episodes(RUN_ID), [])
 
     if episode is not None:
+        cell, _, horizon = _run_meta()
         trace = _safe(lambda: r.episode_trace(RUN_ID, episode), [])
+        exits = {int(e): int(d) for e, d, *_ in episodes}
+        exit_day = exits.get(int(episode))
         return f"""
+        <section class="panel">
+          <h2>Episode {episode} &mdash; P&amp;L and entries</h2>
+          <p class="why">Wealth day by day, with a marker on the curve at every moment
+          the agent changed position and the strip beneath showing what it held in
+          between. The dashed line is the optimal policy in the identical market; the
+          red line is the day the exit actually landed and the position was liquidated.</p>
+          {episode_picker(episodes, episode)}
+          {_episode_equity(trace, exit_day, cell, horizon)}
+        </section>
+
         <section class="panel">
           <h2>Episode {episode}, day by day</h2>
           <p class="why">Filled markers are days the position changed. "Said remaining"
           is the agent's own estimate of days left; "true" is the actual conditional
-          mean it should have held.</p>
-          {episode_picker(episodes, episode)}
+          mean it should have held. Expand any row to read the model's full reasoning
+          for that day, exactly as it was returned.</p>
           {episode_trace_table(trace, episode)}
           <p style="margin-top:14px"><a class="btn" data-back href="/decisions">Back to all trades</a></p>
         </section>"""
@@ -253,9 +315,11 @@ def _decision_log(episode: int = None) -> str:
     <section class="panel">
       <h2>Every position change</h2>
       <p class="why">One row per day the agent moved, newest episodes first, with the
-      model's own words underneath. "Said remaining" is its stated estimate of days
-      left, next to how far that sat from the truth. "Cost" is the wealth given up
-      against the optimal action on that exact day.</p>
+      model's own reasoning collapsed underneath &mdash; expand a row to read what it
+      was actually thinking when it moved. "Said remaining" is its stated estimate of
+      days left, next to how far that sat from the truth. "Cost" is the wealth given
+      up against the optimal action on that exact day. Pick an episode above to see
+      its P&amp;L curve with every entry marked.</p>
       {episode_picker(episodes)}
       {trade_rows(trades)}
     </section>
@@ -267,6 +331,38 @@ def _decision_log(episode: int = None) -> str:
       time and did not use it.</p>
       {costly_rows(costly)}
     </section>"""
+
+
+def _fleet_equity(rows, cell, horizon):
+    """Mean wealth by day across every episode, against the optimal path."""
+    if not rows:
+        return empty_chart(680, 268, "waiting for the first completed episode")
+    wealth = [(int(d), float(mean or 0.0)) for d, mean, _lo, _hi, _n in rows]
+    last = wealth[-1][0]
+    return equity_chart(
+        wealth,
+        entries=((_crossover(cell, horizon), 2),),
+        reference=_reference(cell.get("exit", "uniform"), horizon, last),
+        width=1180, height=300,
+    )
+
+
+def _episode_equity(trace, exit_day, cell, horizon):
+    """One agent's P&L, with every entry marked on the curve where it happened."""
+    rows = [row(t) for t in trace]
+    wealth = [(int(t["day"]), float(t["wealth"])) for t in rows]
+    if not wealth:
+        return empty_chart(680, 268, "no days recorded")
+    bands, entries = holding_bands([(int(t["day"]), int(t["holding"])) for t in rows])
+    last = wealth[-1][0]
+    return equity_chart(
+        wealth,
+        entries=entries,
+        reference=_reference(cell.get("exit", "uniform"), horizon, last),
+        bands=bands,
+        exit_day=exit_day,
+        width=1180, height=310,
+    )
 
 
 def _reading(label, value, foot, accent):
@@ -310,9 +406,21 @@ def _token_chart(rows):
     )
 
 
-def _crossover(cell) -> int:
-    """The day the optimal policy switches, marked on the trading chart."""
-    return 16
+def _crossover(cell, horizon: int = 100) -> int:
+    """The day the optimal policy rotates, marked on the trading charts.
+
+    Read off the solved policy rather than hardcoded: the crossover moves with
+    the exit distribution, so a constant that is right for the uniform cell
+    would silently mark the wrong day on every other one.
+    """
+    def find():
+        holdings = _optimal_path(cell.get("exit", "uniform"), horizon)[0]
+        for day in range(2, len(holdings) + 1):
+            if holdings[day - 1] != holdings[day - 2]:
+                return day
+        return 0
+
+    return _safe(find, 0)
 
 
 def _error_table(errors):

@@ -1,7 +1,14 @@
 from fastapi.testclient import TestClient
 
 from horizon.dashboard.app import app
-from horizon.dashboard.charts import bar_chart, empty_chart, hazard_ribbon, line_chart
+from horizon.dashboard.charts import (
+    bar_chart,
+    empty_chart,
+    equity_chart,
+    hazard_ribbon,
+    holding_bands,
+    line_chart,
+)
 from horizon.env.distributions import bimodal_exit, uniform_exit
 
 client = TestClient(app)
@@ -122,3 +129,106 @@ def test_bar_chart_handles_no_data():
 
 def test_empty_chart_escapes_its_message():
     assert "&lt;script&gt;" in empty_chart(100, 50, "<script>")
+
+
+# --- equity curves --------------------------------------------------------- #
+
+
+def test_holding_bands_collapse_a_day_sequence_into_runs():
+    bands, entries = holding_bands([(1, 3), (2, 3), (3, 0), (4, 0), (5, 2)])
+    assert bands == [(1, 3, 3), (3, 5, 0), (5, 5, 2)]
+    assert entries == [(1, 3), (3, 0), (5, 2)]
+
+
+def test_holding_bands_report_a_single_unchanged_run():
+    bands, entries = holding_bands([(1, 0), (2, 0), (3, 0)])
+    assert bands == [(1, 3, 0)]
+    assert entries == [(1, 0)]
+
+
+def test_equity_chart_marks_every_entry_on_the_curve():
+    wealth = [(d, 1.0 + d / 100) for d in range(1, 21)]
+    svg = equity_chart(wealth, entries=[(1, 3), (5, 0), (16, 2)])
+    # One flag per entry, each labelled with the day and what was entered.
+    assert "d1&#8594;CASH" in svg
+    assert "d5&#8594;A" in svg
+    assert "d16&#8594;C" in svg
+    assert svg.count("<circle") == 3
+
+
+def test_equity_chart_draws_the_optimal_policy_behind_the_agent():
+    svg = equity_chart([(1, 1.0), (2, 1.02)], reference=[(1, 1.01), (2, 1.03)])
+    assert 'class="reference"' in svg
+    assert "optimal policy" in svg
+
+
+def test_equity_chart_omits_the_reference_legend_when_there_is_none():
+    assert "optimal policy" not in equity_chart([(1, 1.0), (2, 1.02)])
+
+
+def test_equity_chart_marks_the_day_the_exit_landed():
+    svg = equity_chart([(d, 1.0) for d in range(1, 31)], exit_day=22)
+    assert "liquidated d22" in svg
+
+
+def test_equity_chart_ignores_an_exit_beyond_the_plotted_days():
+    assert "liquidated" not in equity_chart([(1, 1.0), (2, 1.0)], exit_day=90)
+
+
+def test_equity_chart_draws_the_holding_strip():
+    svg = equity_chart([(d, 1.0 + d / 50) for d in range(1, 41)],
+                       bands=[(1, 16, 0), (16, 40, 2)])
+    assert "var(--asset-a)" in svg
+    assert "var(--asset-c)" in svg
+
+
+def test_equity_chart_shows_break_even_when_the_curve_crosses_it():
+    below = equity_chart([(1, 1.02), (2, 0.94)])
+    assert "break-even" in below
+
+
+def test_equity_chart_handles_no_data():
+    assert "waiting for" in equity_chart([])
+
+
+def test_equity_chart_survives_a_flat_curve():
+    # Every day identical would make the y-range zero and divide by nothing.
+    assert "polyline" in equity_chart([(d, 1.0) for d in range(1, 10)])
+
+
+def test_overview_carries_the_fleet_equity_panel():
+    assert "Equity curve" in client.get("/").text
+
+
+def test_episode_view_leads_with_the_pnl_curve():
+    text = client.get("/decisions?episode=1").text
+    assert "P&amp;L and entries" in text
+
+
+def test_the_optimal_reference_curve_is_solvable_without_a_database():
+    # Drawn behind every equity curve, so it must not depend on the run's rows.
+    from horizon.dashboard.app import _optimal_curve
+
+    curve = _optimal_curve("uniform", 100)
+    assert len(curve) == 100
+    assert curve[0][0] == 1
+    # The optimum enters A, pays the switch cost on the crossover day, then
+    # compounds in C: terminal wealth must clear the day-1 entry comfortably.
+    assert curve[-1][1] > curve[0][1] * 1.5
+
+
+def test_the_reference_curve_is_clipped_to_the_days_actually_played():
+    from horizon.dashboard.app import _reference
+
+    assert [d for d, _ in _reference("uniform", 100, last_day=12)] == list(range(1, 13))
+
+
+def test_the_crossover_marker_is_read_off_the_solved_policy():
+    # Hardcoding it was right for the uniform cell and would be wrong for any
+    # other: the marker has to follow the policy, not a constant.
+    from horizon.dashboard.app import _crossover, _optimal_path
+
+    day = _crossover({"exit": "uniform"}, 100)
+    holdings = _optimal_path("uniform", 100)[0]
+    assert holdings[day - 1] != holdings[day - 2]
+    assert all(holdings[d] == holdings[0] for d in range(day - 1))
