@@ -138,7 +138,7 @@ def test_the_cell_table_survives_a_cell_with_no_episodes_yet():
 
 
 def test_extremes_link_each_episode_to_its_transcript():
-    rows = [("best", 12, 61, 1.52, -0.02, 1, 16), ("worst", 3, 9, 1.02, 0.44, 2, 31)]
+    rows = [("best", 12, 61, 1.52, -0.02, 1, 16, 0.0), ("worst", 3, 9, 1.02, 0.44, 2, 31, 0.31)]
     html = extremes_table(rows, "t2-1")
     assert 'href="/decisions?episode=12&amp;run=t2-1"' in html
     assert 'data-goto="decisions"' in html
@@ -146,7 +146,7 @@ def test_extremes_link_each_episode_to_its_transcript():
 
 
 def test_extremes_handle_an_episode_that_never_traded():
-    html = extremes_table([("worst", 7, 4, 1.00, 0.46, 0, None)], "t2-1")
+    html = extremes_table([("worst", 7, 4, 1.00, 0.46, 0, None, 0.12)], "t2-1")
     assert "&mdash;" in html
 
 

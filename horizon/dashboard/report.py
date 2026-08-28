@@ -283,22 +283,24 @@ def extremes_table(rows, run_id) -> str:
     if not rows:
         return '<p class="why">No finished episodes to rank yet.</p>'
     out = []
-    for kind, episode, exit_day, wealth, regret, switches, first in rows:
+    for kind, episode, exit_day, wealth, regret, switches, first, cost in rows:
         out.append(f"""
         <tr class="rank-{kind}">
-          <td><span class="tag tag-{kind}">{kind}</span></td>
+          <td><span class="tag tag-{kind}">{"played best" if kind == "best" else "played worst"}</span></td>
           <td class="n">{jump("decisions", f"/decisions?episode={episode}&amp;run={run_id}",
                               f"episode {episode}", "jump strong")}</td>
+          <td class="n cost">{float(cost or 0):.4f}</td>
           <td class="n">d{exit_day}</td>
           <td class="n">{"&mdash;" if first is None else f"d{int(first)}"}</td>
           <td class="n">{switches}</td>
           <td class="n">{float(wealth):.4f}</td>
-          <td class="n cost">{float(regret or 0):+.4f}</td>
+          <td class="n dim">{float(regret or 0):+.4f}</td>
         </tr>""")
     return f"""
     <div class="log-wrap">
       <table class="data">
         <thead><tr><th></th><th style="text-align:right">episode</th>
+        <th style="text-align:right">decision cost</th>
         <th style="text-align:right">liquidated</th>
         <th style="text-align:right">first trade</th>
         <th style="text-align:right">trades</th>
@@ -307,9 +309,14 @@ def extremes_table(rows, run_id) -> str:
         <tbody>{"".join(out)}</tbody>
       </table>
     </div>
-    <p class="why" style="margin-top:10px">Click any episode to open its full
-    transcript &mdash; the P&amp;L curve, the entry and exit ledger, and the model's
-    reasoning for every single day.</p>"""
+    <p class="why" style="margin-top:10px">Ranked by <b>decision cost</b> &mdash; the
+    wealth given up against the optimal action, summed over the days actually played.
+    Not by regret: regret is measured against a fixed <i>V*</i>, so an episode
+    liquidated on day 2 looks catastrophic however well it was played and one
+    surviving to day 100 looks brilliant however badly. Ranking by regret would sort
+    these by luck. Regret is still shown, greyed, because it is the protocol's headline
+    metric &mdash; but it is only meaningful averaged over paired episodes.
+    Click any episode to open its full transcript.</p>"""
 
 
 def glossary_body(runs) -> str:

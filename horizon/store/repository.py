@@ -412,25 +412,34 @@ class Repository:
                 for k, v in out.items()}
 
     def extreme_episodes(self, run_id: str, n: int = 5):
-        """The n best and n worst episodes by regret, tagged with which they are.
+        """The n best- and n worst-played episodes, tagged with which they are.
 
-        A report that only shows means hides the shape of the failure; these are
-        the episodes worth opening, so the report links straight to them.
+        Ranked by summed q-loss, NOT by regret. Regret is measured against a
+        fixed V*, which is an expectation over exit days, so an episode
+        liquidated on day 2 shows enormous regret however well it was played and
+        one that survives to day 100 shows negative regret however badly. Ranking
+        by regret therefore sorts episodes by luck. Summed q-loss is the wealth
+        given up against the optimal action on each day the agent actually
+        played, so it is zero for perfect play at any exit day and isolates the
+        decisions from the draw.
         """
+        sql = """
+            WITH cost AS (
+                SELECT episode, sum(truth_q_loss) AS decision_cost
+                FROM agent_days WHERE run_id = %(run)s GROUP BY episode)
+            SELECT %(kind)s AS kind, e.episode, e.true_exit_day, e.terminal_wealth,
+                   e.regret, coalesce(array_length(e.switch_days, 1), 0),
+                   (e.switch_days)[1], c.decision_cost
+            FROM episodes e JOIN cost c ON c.episode = e.episode
+            WHERE e.run_id = %(run)s
+            ORDER BY c.decision_cost {order} LIMIT %(n)s"""
+        rows = []
         with self.cursor() as cur:
-            cur.execute(
-                """(SELECT 'best' AS kind, episode, true_exit_day, terminal_wealth, regret,
-                           coalesce(array_length(switch_days, 1), 0),
-                           (switch_days)[1]
-                    FROM episodes WHERE run_id = %s ORDER BY regret ASC LIMIT %s)
-                   UNION ALL
-                   (SELECT 'worst', episode, true_exit_day, terminal_wealth, regret,
-                           coalesce(array_length(switch_days, 1), 0),
-                           (switch_days)[1]
-                    FROM episodes WHERE run_id = %s ORDER BY regret DESC LIMIT %s)""",
-                (run_id, n, run_id, n),
-            )
-            return cur.fetchall()
+            for kind, order in (("best", "ASC"), ("worst", "DESC")):
+                cur.execute(sql.format(order=order),
+                            {"run": run_id, "kind": kind, "n": n})
+                rows.extend(cur.fetchall())
+        return rows
 
     def first_trade_days(self, run_id: str, horizon: int = 100):
         """How many episodes made their first move on each day."""
