@@ -386,6 +386,68 @@ class Repository:
             )
             return cur.fetchall()
 
+    def run_summary(self, run_id: str) -> dict:
+        """One row of results for a cell: outcome, timing and dispersion.
+
+        The first switch day is the headline behavioural number in this study --
+        it is the moment the agent acts on the clock -- so it is aggregated here
+        rather than recomputed by every caller.
+        """
+        with self.cursor() as cur:
+            cur.execute(
+                """SELECT count(*), avg(terminal_wealth), stddev_samp(terminal_wealth),
+                          avg(regret), stddev_samp(regret),
+                          avg((switch_days)[1]), stddev_samp((switch_days)[1]),
+                          avg(coalesce(array_length(switch_days, 1), 0)),
+                          avg(true_exit_day)
+                   FROM episodes WHERE run_id = %s""",
+                (run_id,),
+            )
+            row = cur.fetchone() or ()
+        keys = ("episodes", "wealth", "wealth_sd", "regret", "regret_sd",
+                "first_trade", "first_trade_sd", "switches", "exit_day")
+        out = dict(zip(keys, row))
+        out["episodes"] = int(out.get("episodes") or 0)
+        return {k: (float(v) if v is not None and k != "episodes" else v)
+                for k, v in out.items()}
+
+    def extreme_episodes(self, run_id: str, n: int = 5):
+        """The n best and n worst episodes by regret, tagged with which they are.
+
+        A report that only shows means hides the shape of the failure; these are
+        the episodes worth opening, so the report links straight to them.
+        """
+        with self.cursor() as cur:
+            cur.execute(
+                """(SELECT 'best' AS kind, episode, true_exit_day, terminal_wealth, regret,
+                           coalesce(array_length(switch_days, 1), 0),
+                           (switch_days)[1]
+                    FROM episodes WHERE run_id = %s ORDER BY regret ASC LIMIT %s)
+                   UNION ALL
+                   (SELECT 'worst', episode, true_exit_day, terminal_wealth, regret,
+                           coalesce(array_length(switch_days, 1), 0),
+                           (switch_days)[1]
+                    FROM episodes WHERE run_id = %s ORDER BY regret DESC LIMIT %s)""",
+                (run_id, n, run_id, n),
+            )
+            return cur.fetchall()
+
+    def first_trade_days(self, run_id: str, horizon: int = 100):
+        """How many episodes made their first move on each day."""
+        with self.cursor() as cur:
+            cur.execute(
+                """SELECT (switch_days)[1] AS d, count(*) FROM episodes
+                   WHERE run_id = %s AND array_length(switch_days, 1) > 0
+                   GROUP BY d ORDER BY d""",
+                (run_id,),
+            )
+            rows = cur.fetchall()
+        counts = [0] * (horizon + 1)
+        for day, n in rows:
+            if day is not None and 0 <= day <= horizon:
+                counts[int(day)] = int(n)
+        return counts
+
     def refused_reentries(self, run_id: str, limit: int = 40):
         """Every day the rules cancelled a move back into a spent asset.
 
