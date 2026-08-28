@@ -4,8 +4,9 @@ Everything here is shaped by three properties measured against the live endpoint
 on 2026-08-27:
 
 1. The model is available at location=global only; us-central1 returns 404.
-2. Thinking cannot be disabled. thinkingConfig.thinkingBudget=0 is ignored and
-   the model still spends ~60 thought tokens. A tight maxOutputTokens therefore
+2. Thinking cannot be disabled. thinkingBudget has no useful effect here, and
+   the reason -- established later -- is that it is the Gemini 2.5 parameter;
+   Gemini 3 takes thinkingLevel instead. A tight maxOutputTokens therefore
    yields a 200 OK carrying finishReason=MAX_TOKENS, ZERO text parts and a
    nonzero thoughtsTokenCount -- a silent failure that a naive parser books as a
    format error, which then counts toward the 5% episode-exclusion rule. It gets
@@ -19,6 +20,25 @@ on 2026-08-27:
    only direct evidence of *why* a trade was made. They are captured into their
    own field and never concatenated into the answer text: the grammar parser
    must never see a BELIEF the model merely considered mid-thought.
+
+   What comes back is a thought *summary*, not the raw chain of thought. No
+   current Gemini model returns raw reasoning: five were tested against this
+   endpoint and all returned summaries, with Gemini 3 adding an encrypted
+   thoughtSignature. The one model that did expose raw thinking,
+   gemini-2.0-flash-thinking-exp-01-21, is retired and 404s. This is a ceiling
+   on the evidence, not a setting anyone can change.
+
+5. thinkingLevel ("low" | "high"; "minimal" is rejected by this model) does
+   control reasoning depth, measured over four samples of one fixed prompt:
+
+       low      median  232 thought tokens, 1,620 trace characters
+       default  median  435 thought tokens, 2,438 trace characters
+       high     median 1272 thought tokens, 2,432 trace characters
+
+   Note the last column. Raising the level buys roughly three times the
+   deliberation but not a longer trace to read, because the summary length is
+   near-fixed. It is a treatment knob, not an observability one, so it belongs
+   in the cell metadata and cannot be changed mid-cell.
 """
 import random
 import re
@@ -155,7 +175,7 @@ class GeminiClient:
 
     def generate(self, system: str, user: str, temperature: float = 0.0,
                  max_output_tokens: int = DEFAULT_OUTPUT_TOKENS,
-                 thinking_budget: int = None) -> dict:
+                 thinking_budget: int = None, thinking_level: str = None) -> dict:
         """One completion. Returns a dict with text, token counts and latency."""
         if max_output_tokens < MIN_OUTPUT_TOKENS:
             raise ValueError(
@@ -164,7 +184,10 @@ class GeminiClient:
             )
         config = {"maxOutputTokens": max_output_tokens, "temperature": temperature}
         thinking = {}
-        if thinking_budget is not None:
+        # Mutually exclusive: the endpoint rejects a request carrying both.
+        if thinking_level is not None:
+            thinking["thinkingLevel"] = thinking_level
+        elif thinking_budget is not None:
             thinking["thinkingBudget"] = thinking_budget
         if INCLUDE_THOUGHTS:
             thinking["includeThoughts"] = True
@@ -284,6 +307,7 @@ class GeminiAgent(Agent):
         history: str = "compressed",
         temperature: float = 0.0,
         thinking_budget: int = None,
+        thinking_level: str = None,
         true_exit_day: int = None,
         max_output_tokens: int = DEFAULT_OUTPUT_TOKENS,
     ):
@@ -293,6 +317,7 @@ class GeminiAgent(Agent):
         self.history = history
         self.temperature = temperature
         self.thinking_budget = thinking_budget
+        self.thinking_level = thinking_level
         self.max_output_tokens = max_output_tokens
         self.system = system_prompt(
             market, dist, condition, variant, probe, true_exit_day
@@ -305,6 +330,7 @@ class GeminiAgent(Agent):
             user,
             temperature=self.temperature,
             thinking_budget=self.thinking_budget,
+            thinking_level=self.thinking_level,
             max_output_tokens=self.max_output_tokens,
         )
 
@@ -332,6 +358,7 @@ class GeminiAgent(Agent):
                 repair,
                 temperature=self.temperature,
                 thinking_budget=self.thinking_budget,
+                thinking_level=self.thinking_level,
                 max_output_tokens=self.max_output_tokens,
             )
             for key in ("prompt_tokens", "completion_tokens", "thought_tokens"):

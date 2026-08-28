@@ -56,6 +56,7 @@ def build_cell() -> dict:
         "history": os.environ.get("HORIZON_HISTORY", "compressed"),
         "temperature": float(os.environ.get("HORIZON_TEMPERATURE", "0")),
         "thinking_budget": _optional_int("HORIZON_THINKING_BUDGET"),
+        "thinking_level": os.environ.get("HORIZON_THINKING_LEVEL") or None,
         # Part of the cell, not an implementation detail: it bounds how long the
         # model is allowed to think, so two cells with different values are not
         # comparable and the stored metadata has to say which is which.
@@ -105,6 +106,7 @@ def main() -> int:
             condition=cell["info"], variant=cell["prompt"], probe=cell["probe"],
             history=cell["history"], temperature=cell["temperature"],
             thinking_budget=cell["thinking_budget"],
+            thinking_level=cell["thinking_level"],
             true_exit_day=true_exit_day,
             max_output_tokens=cell["max_output_tokens"],
         )

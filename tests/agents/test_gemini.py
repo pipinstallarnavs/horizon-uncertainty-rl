@@ -206,3 +206,30 @@ def test_a_repair_reports_the_trace_of_the_reply_that_was_kept():
         {"text": "ACTION: HOLD", "thought_text": "second attempt, correct format"},
     ])
     assert agent.decide(obs()).thought_text == "second attempt, correct format"
+
+
+def test_thinking_level_and_budget_are_never_sent_together():
+    # The endpoint rejects a request carrying both; level is the Gemini 3
+    # parameter and wins when a cell specifies one.
+    sent = {}
+
+    class Capture(GeminiClient):
+        def __init__(self):
+            pass
+
+        def generate(self, system, user, **kwargs):
+            sent.update(kwargs)
+            return {"text": "ACTION: HOLD", "thought_text": "", "finish_reason": "STOP",
+                    "prompt_tokens": 1, "completion_tokens": 1, "thought_tokens": 1,
+                    "total_tokens": 3, "model_version": "m", "latency_ms": 1.0}
+
+    agent = GeminiAgent(Capture(), default_market(), bimodal_exit(),
+                        thinking_level="high", thinking_budget=2048)
+    agent.decide(obs())
+    assert sent["thinking_level"] == "high"
+
+
+def test_a_cell_defaults_to_no_thinking_level():
+    from horizon.runner.orchestrator import build_cell
+
+    assert build_cell()["thinking_level"] is None
