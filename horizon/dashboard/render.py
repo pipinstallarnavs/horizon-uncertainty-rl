@@ -293,6 +293,37 @@ details.think > summary:focus-visible { outline: 2px solid var(--signal); outlin
 .btn.ghost { background: transparent; color: var(--ink); }
 .btn.ghost:hover { background: var(--ink); color: var(--paper); }
 
+/* ---- report and glossary ------------------------------------------------- */
+.findings { list-style: none; margin: 0; padding: 0; }
+.findings li { padding: 12px 0 13px 14px; border-bottom: 1px solid var(--rule);
+               border-left: 3px solid var(--signal); font-size: 13.5px; line-height: 1.55; }
+.findings li.flagged { border-left-color: var(--hazard); background: rgba(180,68,46,.06); }
+.findings li:last-child { border-bottom: 0; }
+a.jump { color: var(--cool); text-decoration: none; border-bottom: 1px solid currentColor;
+         white-space: nowrap; font-size: .95em; }
+a.jump:hover { color: var(--ink); }
+a.jump.strong { font-weight: 700; }
+a.jump:focus-visible, a.cell-link:focus-visible { outline: 2px solid var(--signal);
+                                                  outline-offset: 2px; }
+a.cell-link { color: var(--ink); text-decoration: none; border-bottom: 1px solid var(--rule); }
+a.cell-link:hover { border-bottom-color: var(--ink); }
+tr.here td { background: rgba(46,107,94,.10); }
+tr.here td:first-child { box-shadow: inset 3px 0 0 var(--signal); }
+.tag-best { color: var(--signal); }
+.tag-worst { color: var(--hazard); }
+
+.glossary { margin: 0; }
+.gloss { padding: 13px 0 14px; border-bottom: 1px solid var(--rule); }
+.gloss:target { background: rgba(46,107,94,.10); box-shadow: inset 3px 0 0 var(--signal);
+                padding-left: 11px; }
+.gloss dt { font-size: 13.5px; font-weight: 700; letter-spacing: -.01em; margin-bottom: 4px; }
+.gloss dt code { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: .92em;
+                 background: var(--paper); border: 1px solid var(--rule); padding: 1px 5px; }
+.gloss dd { margin: 0; font-size: 13px; line-height: 1.6; color: var(--muted); max-width: 74ch; }
+.gloss dd b { color: var(--ink); }
+.gloss-table td { vertical-align: top; font-size: 12.5px; line-height: 1.5; }
+.gloss-table td:first-child { white-space: nowrap; }
+
 /* ---- action -------------------------------------------------------------- */
 .btn { display: inline-block; padding: 10px 18px; background: var(--ink); color: var(--paper);
        text-decoration: none; font-size: 12px; font-weight: 500; letter-spacing: .1em;
@@ -323,7 +354,12 @@ SCRIPT = """
   // poll, so the tab remembers its own URL instead of always refetching /decisions.
   var main = document.querySelector('main');
   var q = main && main.dataset.run ? '?run=' + encodeURIComponent(main.dataset.run) : '';
-  var url = { overview: '/live' + q, decisions: '/decisions' + q };
+  var url = {
+    overview: '/live' + q,
+    decisions: '/decisions' + q,
+    report: '/report' + q,
+    glossary: '/glossary' + q
+  };
 
   function openKeys(slot) {
     var keys = {};
@@ -397,6 +433,20 @@ SCRIPT = """
       all.textContent = expandAll ? 'Collapse every day' : 'Expand every day';
       return;
     }
+    // A number in the report is only trustworthy if you can reach the rows
+    // behind it, so report links switch tab and load their own target.
+    var goto = e.target.closest('a[data-goto]');
+    if (goto) {
+      e.preventDefault();
+      var target = goto.dataset.goto;
+      expandAll = false;
+      url[target] = goto.getAttribute('href');
+      show(target);
+      var slot = document.querySelector('.tabpanel[data-tab="' + target + '"]');
+      if (slot) slot.scrollIntoView({ block: 'start' });
+      return;
+    }
+
     var link = e.target.closest('a.chip, a.btn[data-back]');
     if (link && current === 'decisions') {
       e.preventDefault();
@@ -438,7 +488,8 @@ def _cell_chips(runs, active: str) -> str:
 
 
 def page(run_id: str, cell: dict, ribbon: str, ribbon_note: str,
-         body: str, decision_log: str, runs=()) -> str:
+         body: str, decision_log: str, runs=(), report: str = "",
+         glossary: str = "") -> str:
     exit_name = cell.get("exit", "uniform")
     info = cell.get("info", "K")
     condition = {"K": "known distribution", "U": "unknown distribution",
@@ -469,10 +520,14 @@ def page(run_id: str, cell: dict, ribbon: str, ribbon_note: str,
 <main data-run="{run_id}">
   <div class="tabs" role="tablist">
     <button class="tab" role="tab" data-tab="overview" aria-selected="true">Overview</button>
+    <button class="tab" role="tab" data-tab="report" aria-selected="false">Report</button>
     <button class="tab" role="tab" data-tab="decisions" aria-selected="false">Decision log</button>
+    <button class="tab" role="tab" data-tab="glossary" aria-selected="false">Glossary</button>
   </div>
   <div class="tabpanel" data-tab="overview" role="tabpanel">{body}</div>
+  <div class="tabpanel" data-tab="report" role="tabpanel" hidden>{report}</div>
   <div class="tabpanel" data-tab="decisions" role="tabpanel" hidden>{decision_log}</div>
+  <div class="tabpanel" data-tab="glossary" role="tabpanel" hidden>{glossary}</div>
 </main>
 <footer>
   An agent trades in a market and is force-liquidated at a random, unknown day.

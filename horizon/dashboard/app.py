@@ -28,6 +28,13 @@ from horizon.dashboard.decisions import (
     trade_rows,
 )
 from horizon.dashboard.render import page
+from horizon.dashboard.report import (
+    cell_table,
+    decode,
+    extremes_table,
+    findings,
+    glossary_body,
+)
 from horizon.dashboard.transcript import (
     event_ledger,
     refusal_markers,
@@ -152,6 +159,16 @@ def export(run: str = None):
     return FileResponse(path, filename=f"{run_id}-bundle.zip", media_type="application/zip")
 
 
+@app.get("/report", response_class=PlainTextResponse)
+def report(run: str = None):
+    return PlainTextResponse(_report(_resolve(run)), media_type="text/html")
+
+
+@app.get("/glossary", response_class=PlainTextResponse)
+def glossary(run: str = None):
+    return PlainTextResponse(glossary_body(_runs()), media_type="text/html")
+
+
 @app.get("/live", response_class=PlainTextResponse)
 def live(run: str = None):
     return PlainTextResponse(_body(_resolve(run)), media_type="text/html")
@@ -179,7 +196,8 @@ def index(run: str = None):
     )
     return HTMLResponse(
         page(run_id, cell, hazard_ribbon(hazard, centre), note,
-             _body(run_id), _decision_log(run_id), _runs())
+             _body(run_id), _decision_log(run_id), _runs(),
+             _report(run_id), glossary_body(_runs()))
     )
 
 
@@ -417,6 +435,60 @@ def _episode_equity(walked, exit_day, cell, horizon):
         refusals=refusal_markers(walked),
         width=1180, height=310,
     )
+
+
+def _report(run_id: str) -> str:
+    """Results for this cell, every figure linked to the rows behind it."""
+    r = repo()
+    cell, v_star, horizon = _run_meta(run_id)
+    summary = _safe(lambda: r.run_summary(run_id), {})
+    errors = _safe(lambda: r.error_counts(run_id), {})
+    extremes = _safe(lambda: r.extreme_episodes(run_id), [])
+    refused = len(_safe(lambda: r.refused_reentries(run_id), []))
+    tokens = _safe(lambda: r.token_totals(run_id), {})
+
+    rows = _runs()
+    for entry in rows:
+        entry["summary"] = _safe(lambda rid=entry["run_id"]: r.run_summary(rid), {})
+        entry["has_traces"] = str(entry["run_id"]).startswith("t2")
+
+    crossover = _crossover(cell, horizon)
+    return f"""
+    <section class="panel">
+      <h2>{run_id} &mdash; {decode(run_id, cell)}</h2>
+      <p class="why">Optimal expected wealth for this cell is
+      <b>V* = {v_star:.4f}</b>, computed by backward induction over every reachable
+      state and verified against brute-force enumeration. Every figure below is
+      measured against it. Terms are defined in the
+      <a class="jump" data-goto="glossary" href="/glossary?run={run_id}">glossary</a>.</p>
+      {findings(run_id, cell, summary, crossover, refused, errors)}
+    </section>
+
+    <section class="panel">
+      <h2>Episodes worth opening</h2>
+      <p class="why">The best and worst episodes in this cell by regret. The worst ones
+      are where the interesting reasoning is: they are the episodes where the agent
+      knew the clock and traded against it, or misjudged it outright.</p>
+      {extremes_table(extremes, run_id)}
+    </section>
+
+    <section class="panel">
+      <h2>Every cell in the study</h2>
+      <p class="why">The grid crosses four exit distributions with three information
+      conditions. Each row is one cell; the highlighted row is the one you are
+      viewing.</p>
+      {cell_table(rows, run_id)}
+    </section>
+
+    <section class="panel">
+      <h2>Cost and export</h2>
+      <p class="why">Metered for visibility, not to gate the run. Thought tokens bill as
+      output and cannot be switched off on this model, which is why they dominate.</p>
+      <p><span class="num" style="font-size:22px">${tokens.get("usd", 0.0):,.2f}</span>
+        <span class="dim">&nbsp;across {_human(tokens.get("total_tokens", 0))} tokens
+        &middot; {_human(tokens.get("thought_tokens", 0))} of them spent thinking</span></p>
+      <p style="margin-top:14px"><a class="btn" href="/export?run={run_id}">Download report bundle</a></p>
+    </section>"""
 
 
 def _reading(label, value, foot, accent):

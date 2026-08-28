@@ -104,11 +104,11 @@ def test_decision_endpoints_are_served_as_fragments():
         assert "<html" not in response.text
 
 
-def test_shell_carries_both_tabs():
+def test_shell_carries_every_tab():
     html = client.get("/").text
-    assert 'data-tab="overview"' in html
-    assert 'data-tab="decisions"' in html
-    assert html.count('class="tabpanel"') == 2
+    for tab in ("overview", "report", "decisions", "glossary"):
+        assert f'data-tab="{tab}"' in html
+    assert html.count('class="tabpanel"') == 4
 
 
 def test_trade_log_carries_the_models_reasoning_trace():
